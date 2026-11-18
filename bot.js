@@ -15,29 +15,41 @@ async function startBot() {
     if (connection === 'open') console.log('✅ Bot Connected!');
   });
 
+  async function sendWithTyping(from, text) {
+    await sock.sendPresenceUpdate('composing', from);
+    await sock.sendMessage(from, { text });
+    await sock.sendPresenceUpdate('paused', from);
+  }
+
   sock.ev.on('group-participants.update', async (update) => {
     if (update.action === 'add') {
-      await sock.sendMessage(update.id, { text: 'Welcome to the group! 🎉' });
+      await sendWithTyping(update.id, 'Welcome to the group! 🎉');
     } else if (update.action === 'remove') {
-      await sock.sendMessage(update.id, { text: 'Goodbye! 👋' });
+      await sendWithTyping(update.id, 'Goodbye! 👋');
     }
   });
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages[0];
-    if (!msg.message || msg.key.fromMe) return;
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue;
 
-    const text = msg.message.conversation
-      || msg.message.extendedTextMessage?.text
-      || '';
-    const from = msg.key.remoteJid;
+      const from = msg.key.remoteJid;
+      if (!from) continue;
 
-    if (text.toLowerCase() === 'hi') {
-      await sock.sendMessage(from, { text: 'Hello 👋' });
-    } else if (text.toLowerCase() === 'price') {
-      await sock.sendMessage(from, { text: 'Price is 500' });
-    } else if (text.includes('https://')) {
-      await sock.sendMessage(from, { text: 'Links not allowed! ❌' });
+      // Mark the incoming message as read.
+      await sock.readMessages([msg.key]);
+
+      const text = msg.message.conversation
+        || msg.message.extendedTextMessage?.text
+        || '';
+
+      if (text.toLowerCase() === 'hi') {
+        await sendWithTyping(from, 'Hello 👋');
+      } else if (text.toLowerCase() === 'price') {
+        await sendWithTyping(from, 'Price is 500');
+      } else if (text.includes('https://')) {
+        await sendWithTyping(from, 'Links not allowed! ❌');
+      }
     }
   });
 }

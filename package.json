@@ -1,7 +1,5 @@
 {
   "name": "brianbot1",
-  "version": "1.0.0",
-  "description": "WhatsApp bot",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
@@ -9,6 +7,18 @@
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
     "pino": "latest",
-    "qrcode-terminal": "latest"
+    "qrcode-terminal": "latest",
+    "axios": "latest",
+    "fs-extra": "latest",
+    "node-fetch": "latest",
+    "moment-timezone": "latest",
+    "figlet": "latest",
+    "chalk": "latest",
+    "express": "latest",
+    "ytdl-core": "latest",
+    "wa-sticker-formatter": "latest",
+    "jimp": "latest",
+    "openai": "latest",
+    "sqlite3": "latest"
   }
 }

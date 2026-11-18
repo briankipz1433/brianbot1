@@ -15,17 +15,29 @@ async function startBot() {
     if (connection === 'open') console.log('✅ Bot Connected!');
   });
 
+  sock.ev.on('group-participants.update', async (update) => {
+    if (update.action === 'add') {
+      await sock.sendMessage(update.id, { text: 'Welcome to the group! 🎉' });
+    } else if (update.action === 'remove') {
+      await sock.sendMessage(update.id, { text: 'Goodbye! 👋' });
+    }
+  });
+
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
 
-    const text = msg.message.conversation || '';
+    const text = msg.message.conversation
+      || msg.message.extendedTextMessage?.text
+      || '';
     const from = msg.key.remoteJid;
 
-    if (text === 'hi') {
+    if (text.toLowerCase() === 'hi') {
       await sock.sendMessage(from, { text: 'Hello 👋' });
-    } else if (text === 'price') {
+    } else if (text.toLowerCase() === 'price') {
       await sock.sendMessage(from, { text: 'Price is 500' });
+    } else if (text.includes('https://')) {
+      await sock.sendMessage(from, { text: 'Links not allowed! ❌' });
     }
   });
 }

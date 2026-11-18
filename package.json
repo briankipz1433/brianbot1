@@ -1,0 +1,14 @@
+{
+  "name": "brianbot1",
+  "version": "1.0.0",
+  "description": "WhatsApp bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest"
+  }
+}

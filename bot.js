@@ -51,6 +51,13 @@ async function startBot() {
           from,
           'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230'
         );
+      } else if (text.toLowerCase() === 'sticker') {
+        const stickerUrl = process.env.STICKER_URL;
+        if (stickerUrl) {
+          await sock.sendMessage(from, { sticker: { url: stickerUrl } });
+        } else {
+          await sendWithTyping(from, 'Sticker is not configured yet. Set the STICKER_URL environment variable.');
+        }
       } else if (text.includes('https://')) {
         await sendWithTyping(from, 'Links not allowed! ❌');
       }

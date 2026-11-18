@@ -4,28 +4,41 @@ const pino = require('pino');
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth');
-  const sock = makeWASocket({ auth: state, logger: pino({ level: 'silent' }) });
+
+  const sock = makeWASocket({
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: false
+  });
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, qr } = update;
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, qr, lastDisconnect } = update;
 
-    if (qr) qrcode.generate(qr, { small: true });
-    if (connection === 'open') console.log('✅ Bot Connected!');
-  });
+    if (qr) {
+      qrcode.generate(qr, { small: true });
 
-  async function sendWithTyping(from, text) {
-    await sock.sendPresenceUpdate('composing', from);
-    await sock.sendMessage(from, { text });
-    await sock.sendPresenceUpdate('paused', from);
-  }
+      if (!sock.authState.creds.registered) {
+        const phoneNumber = process.env.PHONE_NUMBER || '254712345678';
+        const digits = phoneNumber.replace(/[^0-9]/g, '');
 
-  sock.ev.on('group-participants.update', async (update) => {
-    if (update.action === 'add') {
-      await sendWithTyping(update.id, 'Welcome to the group! 🎉');
-    } else if (update.action === 'remove') {
-      await sendWithTyping(update.id, 'Goodbye! 👋');
+        if (digits) {
+          try {
+            const pairingCode = await sock.requestPairingCode(digits);
+            console.log(`📱 Pairing code: ${pairingCode}`);
+          } catch (error) {
+            console.error('Could not generate pairing code:', error.message);
+          }
+        }
+      }
+    }
+
+    if (connection === 'open') {
+      console.log('✅ Bot Connected!');
+    } else if (connection === 'close') {
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      if (statusCode !== 401) startBot();
     }
   });
 
@@ -43,25 +56,25 @@ async function startBot() {
         || '';
 
       if (text.toLowerCase() === 'hi') {
-        await sendWithTyping(from, 'Hello 👋');
+        await sock.sendMessage(from, { text: 'Hello 👋' });
       } else if (text.toLowerCase() === 'price') {
-        await sendWithTyping(from, 'Price is 500');
+        await sock.sendMessage(from, { text: 'Price is 500' });
       } else if (text.toLowerCase() === 'contribution') {
-        await sendWithTyping(
+        await sock.sendMessage(
           from,
-          'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230'
+          { text: 'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230' }
         );
       } else if (text.toLowerCase() === 'sticker') {
         const stickerUrl = process.env.STICKER_URL;
         if (stickerUrl) {
           await sock.sendMessage(from, { sticker: { url: stickerUrl } });
         } else {
-          await sendWithTyping(from, 'Sticker is not configured yet. Set the STICKER_URL environment variable.');
+          await sock.sendMessage(from, { text: 'Sticker is not configured yet.' });
         }
       } else if (text.toLowerCase() === 'football') {
-        await sendWithTyping(from, '⚽ Choose Left / Center / Right');
+        await sock.sendMessage(from, { text: '⚽ Choose Left / Center / Right' });
       } else if (text.includes('https://')) {
-        await sendWithTyping(from, 'Links not allowed! ❌');
+        await sock.sendMessage(from, { text: 'Links not allowed! ❌' });
       }
     }
   });

@@ -58,6 +58,8 @@ async function startBot() {
         } else {
           await sendWithTyping(from, 'Sticker is not configured yet. Set the STICKER_URL environment variable.');
         }
+      } else if (text.toLowerCase() === 'football') {
+        await sendWithTyping(from, '⚽ Choose Left / Center / Right');
       } else if (text.includes('https://')) {
         await sendWithTyping(from, 'Links not allowed! ❌');
       }

@@ -36,7 +36,6 @@ async function startBot() {
       const from = msg.key.remoteJid;
       if (!from) continue;
 
-      // Mark the incoming message as read.
       await sock.readMessages([msg.key]);
 
       const text = msg.message.conversation
@@ -47,6 +46,11 @@ async function startBot() {
         await sendWithTyping(from, 'Hello 👋');
       } else if (text.toLowerCase() === 'price') {
         await sendWithTyping(from, 'Price is 500');
+      } else if (text.toLowerCase() === 'contribution') {
+        await sendWithTyping(
+          from,
+          'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230'
+        );
       } else if (text.includes('https://')) {
         await sendWithTyping(from, 'Links not allowed! ❌');
       }

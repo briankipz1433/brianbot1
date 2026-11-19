@@ -1,18 +1,10 @@
-# Python bytecode and caches
-__pycache__/
-*.py[cod]
-*$py.class
+# Node.js dependencies
+node_modules/
 
-# Virtual environments
-.env
-.venv/
-env/
-venv/
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
+# Authentication and session data
+auth/
+session/
+creds.json
 
 # Environment and secret files
 .env
@@ -21,6 +13,21 @@ dist/
 
 # Logs
 *.log
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
 
 # IDE and editor files
 .vscode/

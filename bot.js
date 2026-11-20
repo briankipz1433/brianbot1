@@ -1,6 +1,17 @@
 const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
+const http = require('http'); // <-- NEW: For Render Port
+
+// NEW: Fake website for Render so it doesn't show Port error
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('✅ BRIAN BOT is Running!');
+});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🌐 BRIAN BOT Server running on port ${PORT}`);
+});
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth');

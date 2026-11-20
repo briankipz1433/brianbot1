@@ -10,118 +10,78 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const pairingNumber = (process.env.PAIR_NUMBER || process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, '');
-const pairingPass = process.env.PAIRING_PASS || '';
-const SESSION_FOLDER = 'session';
 
+let pairingNumber = (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, '');
+let currentPairCode = '';
 let botStatus = 'Disconnected';
 let sock = null;
-let reconnectTimer = null;
-let presenceTimer = null;
 
-function authorized(req) {
-  return Boolean(pairingPass) && req.get('x-pairing-pass') === pairingPass;
-}
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-function escapeHtml(value) {
+function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, char => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
   })[char]);
 }
 
-function getHTML() {
-  const online = botStatus.toLowerCase().includes('online');
-  return `<!doctype html>
-<html lang="en">
+function getHTML(errorMsg = '') {
+  return `<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="no-referrer">
-  <title>BRIAN BOT — Pair</title>
-  <style>
-    *{box-sizing:border-box}body{font-family:Arial,sans-serif;text-align:center;padding:20px;margin:0;background:#0b141a;color:#fff}
-    main{max-width:440px;margin:24px auto;border:1px solid #FFD700;border-radius:16px;padding:24px;background:#111b21}
-    .crown{font-size:48px}h1{margin:8px 0}.gold{color:#FFD700}.green{color:#25D366}
-    .status{display:inline-block;background:${online ? '#25D366' : '#FF3B30'};padding:10px 14px;border-radius:20px;font-weight:bold}
-    .box{margin:20px 0;padding:18px;border:1px solid #333;border-radius:12px;background:#0b141a}
-    input,button{width:100%;padding:14px;border-radius:9px;font-size:16px}input{margin:12px 0;background:#000;color:#fff;border:1px solid #FFD700}
-    button{border:0;background:linear-gradient(90deg,#25D366,#FFD700);font-weight:bold;cursor:pointer}
-    #code{font-size:30px;letter-spacing:5px;color:#FFD700;font-weight:bold;margin:12px 0;overflow-wrap:anywhere}
-    #error{color:#ff7777;margin-top:10px}.steps{text-align:left;line-height:1.8;color:#ddd}.muted{color:#aaa;font-size:12px}
-  </style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>BRIAN BOT - Pair</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
+body{background:#0a0f0a;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:15px}
+.card{background:linear-gradient(180deg,#1a241a 0%,#0f1510 100%);width:100%;max-width:420px;border-radius:22px;padding:28px 24px;text-align:center;border:2px solid #FFD700;box-shadow:0 10px 40px rgba(255,215,0,.25)}
+.crown{font-size:55px}h1{color:#fff;font-size:26px;letter-spacing:2px;margin-top:6px}h1 span{color:#FFD700}
+.sub{color:#25D366;font-size:12px;font-weight:700;letter-spacing:2px;margin:6px 0 16px}
+.status{display:inline-block;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:800;background:${botStatus.includes('ONLINE') ? '#25D366' : '#ff3b30'};color:#000;margin-bottom:18px;border:1px solid #FFD700}
+.box{background:#111a11;padding:18px;border-radius:14px;margin-bottom:16px;border:1px solid #FFD700}
+.box label{color:#FFD700;font-size:11px;letter-spacing:2px;font-weight:700}.code{font-size:42px;letter-spacing:8px;color:#fff;font-weight:900;margin:10px 0}.number{color:#25D366;font-size:15px;font-weight:700}
+.steps{text-align:left;background:#111a11;padding:16px;border-radius:14px;margin-bottom:16px;border:1px solid #333}.steps h3{color:#FFD700;font-size:14px;margin-bottom:10px}.steps p{color:#ccc;font-size:13px;line-height:1.9}
+input{width:100%;padding:13px;border-radius:10px;border:1px solid #FFD700;background:#000;color:#fff;font-size:15px;text-align:center;outline:none;margin-bottom:10px}button{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(90deg,#25D366,#FFD700);color:#000;font-weight:900;font-size:15px;cursor:pointer}.error{background:#ff3b30;color:#fff;padding:10px;border-radius:10px;font-size:13px;margin-bottom:12px}.footer{color:#888;font-size:11px;margin-top:16px}.footer b{color:#FFD700}
+</style>
 </head>
-<body><main>
-  <div class="crown">👑</div><h1>BRIAN <span class="gold">BOT</span></h1>
-  <p class="green">👑 KING OF BOTS • GREEN + GOLD 👑</p>
-  <div class="status">${online ? '✅' : '🔴'} ${escapeHtml(botStatus.toUpperCase())}</div>
-  <section class="box">
-    <p>🤖 <b>Bot number</b></p>
-    <h2 class="green">${pairingNumber ? `+${escapeHtml(pairingNumber)}` : 'Not configured'}</h2>
-    <label for="pass">Pairing password</label>
-    <input id="pass" type="password" autocomplete="current-password" placeholder="Enter pairing password">
-    <button id="generate" type="button">GENERATE CODE 👑</button>
-    <div id="code" aria-live="polite"></div><div id="error" role="alert"></div>
-    <p class="muted">The pairing code is shown only in the browser that requests it.</p>
-  </section>
-  <section class="steps"><b class="gold">📱 How To Link:</b><br>
-    1. Generate and copy the code<br>2. Open WhatsApp on the configured bot number<br>
-    3. Settings → Linked Devices → Link a Device<br>4. Tap “Link with phone number instead”<br>5. Enter the code
-  </section>
-  <p class="muted">👑 BRIAN BOT © 2026 • Green + Gold Edition</p>
-</main>
-<script>
-document.getElementById('generate').addEventListener('click', async () => {
-  const button = document.getElementById('generate');
-  const error = document.getElementById('error');
-  const code = document.getElementById('code');
-  error.textContent = ''; code.textContent = ''; button.disabled = true;
-  try {
-    const response = await fetch('/pair', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'x-pairing-pass': document.getElementById('pass').value},
-      cache: 'no-store'
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || 'Pairing failed');
-    code.textContent = body.code;
-  } catch (e) {
-    error.textContent = e.message || 'Pairing failed';
-  } finally { button.disabled = false; }
-});
-</script></body></html>`;
+<body>
+<div class="card">
+<div class="crown">👑</div>
+<h1>BRIAN <span>BOT</span></h1>
+<p class="sub">KING OF BOTS • GREEN + GOLD</p>
+<div class="status">${escapeHTML(botStatus.toUpperCase())}</div>
+${errorMsg ? `<div class="error">${escapeHTML(errorMsg)}</div>` : ''}
+<div class="box">
+<label>YOUR BOT PAIRING NUMBER</label>
+<div class="number">${pairingNumber ? `+${escapeHTML(pairingNumber)}` : 'Not configured'}</div>
+</div>
+<div class="box">
+<label>PAIRED NUMBER</label>
+<div class="code">${escapeHTML(currentPairCode || 'Generating...')}</div>
+</div>
+<div class="steps">
+<h3>How To Link:</h3>
+<p><b>1.</b> Open the code above<br><b>2.</b> Open WhatsApp<br><b>3.</b> Settings → Linked Devices<br><b>4.</b> Link a Device<br><b>5.</b> Select “Link with phone number instead”<br><b>6.</b> Enter the pairing code</p>
+</div>
+<p class="footer">BRIAN BOT © 2026 • Green + Gold Edition</p>
+</div>
+</body>
+</html>`;
 }
 
-app.get('/', (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.type('html').send(getHTML());
-});
-app.get('/status', (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json({ status: botStatus, pairingConfigured: Boolean(pairingNumber), pairingPasswordConfigured: Boolean(pairingPass) });
-});
+app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
+app.get('/pair', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
+app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({
+  status: botStatus,
+  pairingNumber,
+  pairingCode: currentPairCode
+}));
 
-app.post('/pair', async (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  if (!pairingPass) return res.status(503).json({ error: 'PAIRING_PASS is not configured' });
-  if (!authorized(req)) return res.status(401).json({ error: 'Unauthorized' });
-  if (!pairingNumber) return res.status(400).json({ error: 'PAIR_NUMBER is not configured' });
-  if (!sock || sock.authState?.creds?.registered) {
-    return res.status(409).json({ error: 'Session is not available for pairing' });
-  }
-
-  try {
-    const code = await sock.requestPairingCode(pairingNumber);
-    res.json({ code });
-  } catch (error) {
-    console.error('Pairing error:', error.message);
-    res.status(500).json({ error: 'Could not generate pairing code' });
-  }
-});
-
-app.listen(PORT, () => console.log(`BRIAN BOT web server listening on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server on ${PORT}`));
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_FOLDER);
+  const { state, saveCreds } = await useMultiFileAuthState('session');
   const { version } = await fetchLatestBaileysVersion();
 
   sock = makeWASocket({
@@ -135,88 +95,67 @@ async function startBot() {
   });
 
   sock.ev.on('creds.update', saveCreds);
-  sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
-    if (connection === 'connecting') botStatus = 'Connecting';
+
+  if (!sock.authState.creds.registered && pairingNumber) {
+    setTimeout(async () => {
+      try {
+        currentPairCode = await sock.requestPairingCode(pairingNumber);
+        console.log(`\nBRIAN BOT PAIR CODE FOR ${pairingNumber}: ${currentPairCode}\n`);
+      } catch (error) {
+        console.log('Pair error:', error.message);
+      }
+    }, 3000);
+  }
+
+  sock.ev.on('connection.update', async update => {
+    const { connection, lastDisconnect } = update;
 
     if (connection === 'close') {
-      botStatus = 'Disconnected';
-      if (presenceTimer) clearInterval(presenceTimer);
-      presenceTimer = null;
-
       const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
+      botStatus = 'Disconnected';
+      currentPairCode = '';
+
       if (loggedOut) {
-        try { fs.rmSync(SESSION_FOLDER, { recursive: true, force: true }); }
-        catch (error) { console.error('Could not clear session:', error.message); }
+        console.log('Logged out - deleting session and restarting');
+        fs.rmSync('session', { recursive: true, force: true });
+        setTimeout(startBot, 2000);
+      } else {
+        setTimeout(startBot, 3000);
       }
-
-      if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null;
-          startBot().catch(error => {
-            console.error('Reconnect error:', error.message);
-            scheduleReconnect();
-          });
-        }, 3000);
-      }
-    }
-
-    if (connection === 'open') {
+    } else if (connection === 'open') {
       botStatus = 'Connected - ONLINE';
-      if (presenceTimer) clearInterval(presenceTimer);
+      currentPairCode = '';
+      console.log('BRIAN BOT CONNECTED - ONLINE');
+
       try {
         await sock.sendPresenceUpdate('available');
-        await sock.updateProfileStatus('👑 BRIAN BOT ONLINE 🔥');
-      } catch (error) { console.error('Presence update failed:', error.message); }
-      presenceTimer = setInterval(async () => {
-        try { await sock.sendPresenceUpdate('available'); }
-        catch (error) { console.error('Presence update failed:', error.message); }
+      } catch {}
+
+      setInterval(async () => {
+        try { await sock.sendPresenceUpdate('available'); } catch {}
       }, 15000);
-      console.log('✅ BRIAN BOT ONLINE');
     }
   });
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
-    for (const msg of messages || []) {
-      if (!msg?.message || msg.key?.fromMe) continue;
-      const jid = msg.key?.remoteJid;
-      if (!jid) continue;
-      const text = msg.message.conversation
-        || msg.message.extendedTextMessage?.text
-        || msg.message.imageMessage?.caption
-        || '';
-      const command = text.toLowerCase().trim().replace(/^[.!/]/, '');
+    const msg = messages[0];
+    if (!msg?.message || msg.key?.fromMe) return;
 
-      try {
-        if (command === 'hi' || command === 'hello') {
-          await sock.sendMessage(jid, { text: 'Hello 👋 I am BRIAN BOT\nType *menu* to see commands' });
-        } else if (command === 'menu' || command === 'help') {
-          await sock.sendMessage(jid, { text: '🤖 *BRIAN BOT MENU*\n\n• hi - Hello\n• menu - This menu\n• price - Price\n• ping - Check online\n• football - Football game' });
-        } else if (command === 'ping') {
-          await sock.sendMessage(jid, { text: '✅ BRIAN BOT is ONLINE ⚡' });
-        } else if (command === 'price') {
-          await sock.sendMessage(jid, { text: 'Price is 500' });
-        } else if (command === 'football') {
-          await sock.sendMessage(jid, { text: '⚽ Choose Left / Center / Right' });
-        }
-      } catch (error) {
-        console.error('Message handling failed:', error.message);
-      }
+    const jid = msg.key.remoteJid;
+    const text = msg.message.conversation
+      || msg.message.extendedTextMessage?.text
+      || '';
+
+    if (text.toLowerCase() === 'pair' || text.toLowerCase() === 'code') {
+      await sock.sendMessage(jid, {
+        text: `BRIAN BOT\n\nPairing code: ${currentPairCode || 'Generating...'}\n\nOpen: https://brianbot1.onrender.com/pair`
+      });
+    }
+
+    if (text === '.ping') {
+      await sock.sendMessage(jid, { text: 'BRIAN BOT IS ONLINE' });
     }
   });
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    startBot().catch(error => {
-      console.error('Reconnect error:', error.message);
-      scheduleReconnect();
-    });
-  }, 5000);
-}
-
-startBot().catch(error => {
-  console.error('Startup error:', error.message);
-  scheduleReconnect();
-});
+startBot();

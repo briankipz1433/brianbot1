@@ -6,6 +6,7 @@ const { URL } = require('url');
 const { handleCommand } = require('./handler.js');
 
 const OWNER_NUMBER = process.env.OWNER_NUMBER || '';
+const PORT = Number(process.env.PORT) || 3000;
 
 let sock = null;
 let LATEST_CODE = 'No pairing code yet';
@@ -29,7 +30,7 @@ async function requestPairingCode(phoneNumber) {
   if (digits.length < 8 || digits.length > 15) {
     throw new Error('Enter a valid phone number including country code (8–15 digits).');
   }
-  if (!sock || sock.authState.creds.registered) {
+  if (!sock || sock.authState?.creds?.registered) {
     throw new Error('The WhatsApp connection is not ready for pairing. Try again shortly.');
   }
   if (pairingRequestInProgress) {
@@ -49,9 +50,7 @@ async function requestPairingCode(phoneNumber) {
 
 function renderPage(message = '') {
   const phoneNumber = process.env.PHONE_NUMBER || '';
-  const messageHtml = message
-    ? `<p role="status">${escapeHtml(message)}</p>`
-    : '';
+  const messageHtml = message ? `<p role="status">${escapeHtml(message)}</p>` : '';
   return `<!doctype html>
 <html>
 <head>
@@ -68,7 +67,7 @@ function renderPage(message = '') {
   <h2>Pair WhatsApp</h2>
   <form method="POST" action="/pair">
     <label for="number">Phone number with country code</label><br>
-    <input id="number" name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" placeholder="2547XXXXXXXX" value="${escapeHtml(phoneNumber)}" style="padding:10px;margin:8px 8px 8px 0;">
+    <input id="number" name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" placeholder="2547XXXXXXXX" value="${escapeHtml(phoneNumber)}" style="padding:10px;margin:8px 0;">
     <button type="submit" style="padding:10px 16px;">Get pairing code</button>
   </form>
   <p>In WhatsApp, open Linked Devices, choose Link with phone number instead, then enter the code.</p>
@@ -78,7 +77,6 @@ function renderPage(message = '') {
 </html>`;
 }
 
-const PORT = process.env.PORT || 3000;
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -87,7 +85,13 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/status' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ connected: Boolean(sock?.user), status: BOT_STATUS, lastUpdate: LAST_UPDATE, uptime: process.uptime(), service: 'live' }));
+    res.end(JSON.stringify({
+      connected: Boolean(sock?.user),
+      status: BOT_STATUS,
+      lastUpdate: LAST_UPDATE,
+      uptime: process.uptime(),
+      service: 'live'
+    }));
     return;
   }
 
@@ -125,7 +129,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => console.log(`🌐 BRIAN BOT pairing page listening on port ${PORT}`));
 
 async function startBot() {
-  // Keep the existing auth directory so saved WhatsApp credentials continue to work.
+  // Reuse the auth directory so saved WhatsApp credentials continue to work.
   const { state, saveCreds } = await useMultiFileAuthState('auth');
 
   sock = makeWASocket({
@@ -144,7 +148,7 @@ async function startBot() {
 
     if (qr) {
       qrcode.generate(qr, { small: true });
-      if (!currentSock.authState.creds.registered && process.env.PHONE_NUMBER) {
+      if (!currentSock.authState?.creds?.registered && process.env.PHONE_NUMBER) {
         try {
           await requestPairingCode(process.env.PHONE_NUMBER);
           console.log('📱 BRIAN BOT pairing code generated');
@@ -212,27 +216,31 @@ _Powered by BRIAN BOT_`;
       if (!msg.message || msg.key.fromMe) continue;
       const from = msg.key.remoteJid;
       if (!from) continue;
-      await currentSock.readMessages([msg.key]);
-      await handleCommand(currentSock, msg);
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+      try {
+        await currentSock.readMessages([msg.key]);
+        await handleCommand(currentSock, msg);
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-      if (text.toLowerCase() === 'hi') {
-        await currentSock.sendMessage(from, { text: 'Hello 👋 I am BRIAN BOT' });
-      } else if (text.toLowerCase() === 'price') {
-        await currentSock.sendMessage(from, { text: 'Price is 500' });
-      } else if (text.toLowerCase() === 'contribution') {
-        await currentSock.sendMessage(from, { text: 'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230' });
-      } else if (text.toLowerCase() === 'sticker') {
-        const stickerUrl = process.env.STICKER_URL;
-        if (stickerUrl) {
-          await currentSock.sendMessage(from, { sticker: { url: stickerUrl } });
-        } else {
-          await currentSock.sendMessage(from, { text: 'Sticker is not configured yet.' });
+        if (text.toLowerCase() === 'hi') {
+          await currentSock.sendMessage(from, { text: 'Hello 👋 I am BRIAN BOT' });
+        } else if (text.toLowerCase() === 'price') {
+          await currentSock.sendMessage(from, { text: 'Price is 500' });
+        } else if (text.toLowerCase() === 'contribution') {
+          await currentSock.sendMessage(from, { text: 'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230' });
+        } else if (text.toLowerCase() === 'sticker') {
+          const stickerUrl = process.env.STICKER_URL;
+          if (stickerUrl) {
+            await currentSock.sendMessage(from, { sticker: { url: stickerUrl } });
+          } else {
+            await currentSock.sendMessage(from, { text: 'Sticker is not configured yet.' });
+          }
+        } else if (text.toLowerCase() === 'football') {
+          await currentSock.sendMessage(from, { text: '⚽ Choose Left / Center / Right' });
+        } else if (text.includes('https://')) {
+          await currentSock.sendMessage(from, { text: 'Links not allowed! ❌' });
         }
-      } else if (text.toLowerCase() === 'football') {
-        await currentSock.sendMessage(from, { text: '⚽ Choose Left / Center / Right' });
-      } else if (text.includes('https://')) {
-        await currentSock.sendMessage(from, { text: 'Links not allowed! ❌' });
+      } catch (error) {
+        console.error('Could not process message:', error.message);
       }
     }
   });

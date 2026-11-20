@@ -1,29 +1,101 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const http = require('http');
+const { URL } = require('url');
 
-let LATEST_CODE = 'Generating... Please refresh shortly';
+let sock = null;
+let LATEST_CODE = 'No pairing code yet';
 let BOT_STATUS = 'Starting...';
+let LAST_UPDATE = new Date().toISOString();
+let pairingRequestInProgress = false;
 
-// A WhatsApp pairing code can link the account, so the page requires HTTP Basic
-// Authentication. Configure PAIRING_PAGE_PASSWORD in the hosting environment.
-const server = http.createServer((req, res) => {
-  const password = process.env.PAIRING_PAGE_PASSWORD;
-  const username = process.env.PAIRING_PAGE_USER || 'pairing';
-  const expectedAuth = password
-    ? `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-    : null;
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
 
+function updateStatus(status) {
+  BOT_STATUS = status;
+  LAST_UPDATE = new Date().toISOString();
+}
+
+async function requestPairingCode(phoneNumber) {
+  const digits = String(phoneNumber || '').replace(/[^0-9]/g, '');
+  if (digits.length < 8 || digits.length > 15) {
+    throw new Error('Enter a valid phone number including country code (8–15 digits).');
+  }
+  if (!sock || sock.authState.creds.registered) {
+    throw new Error('The WhatsApp connection is not ready for pairing. Try again shortly.');
+  }
+  if (pairingRequestInProgress) {
+    throw new Error('A pairing code request is already in progress.');
+  }
+
+  pairingRequestInProgress = true;
+  try {
+    const code = await sock.requestPairingCode(digits);
+    LATEST_CODE = code;
+    updateStatus('Pairing code ready — enter it in WhatsApp');
+    return code;
+  } finally {
+    pairingRequestInProgress = false;
+  }
+}
+
+function renderPage(message = '') {
+  const phoneNumber = process.env.PHONE_NUMBER || '';
+  const messageHtml = message
+    ? `<p role="status">${escapeHtml(message)}</p>`
+    : '';
+  return `<!doctype html>
+<html>
+<head>
+  <title>BRIAN BOT</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
+</head>
+<body style="font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:20px;background:#111b21;color:white;">
+  <h1>🤖 BRIAN BOT</h1>
+  <p><b>Status:</b> ${escapeHtml(BOT_STATUS)}</p>
+  <p><b>Last update:</b> ${escapeHtml(LAST_UPDATE)}</p>
+  <p><b>Last pairing code:</b> <strong>${escapeHtml(LATEST_CODE)}</strong></p>
+  ${messageHtml}
+  <h2>Pair WhatsApp</h2>
+  <form method="POST" action="/pair">
+    <label for="number">Phone number with country code</label><br>
+    <input id="number" name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" placeholder="2547XXXXXXXX" value="${escapeHtml(phoneNumber)}" style="padding:10px;margin:10px 0;">
+    <button type="submit" style="padding:10px 16px;">Get pairing code</button>
+  </form>
+  <p>In WhatsApp, open Linked Devices, choose Link with phone number instead, then enter the code.</p>
+  <p><a href="/" style="color:#25D366;">Refresh status</a></p>
+  <p style="color:#aaa;font-size:12px;">Keep this page and pairing code private. A pairing code can link a device to your WhatsApp account.</p>
+</body>
+</html>`;
+}
+
+const PORT = process.env.PORT || 3000;
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (!expectedAuth) {
+  if (url.pathname === '/api/status' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ connected: Boolean(sock?.user), status: BOT_STATUS, lastUpdate: LAST_UPDATE, uptime: process.uptime(), service: 'live' }));
+    return;
+  }
+
+  const password = process.env.PAIRING_PAGE_PASSWORD;
+  const username = process.env.PAIRING_PAGE_USER || 'pairing';
+  if (!password) {
     res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Pairing page is locked. Configure PAIRING_PAGE_PASSWORD to enable it.');
     return;
   }
-
+  const expectedAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
   if (req.headers.authorization !== expectedAuth) {
     res.writeHead(401, {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -33,121 +105,112 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(`
-    <!doctype html>
-    <html>
-    <head>
-      <title>BRIAN BOT Pairing</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-    </head>
-    <body style="font-family:Arial; text-align:center; padding:30px; background:#111b21; color:white;">
-      <h1>🤖 BRIAN BOT</h1>
-      <p>Number: <b>${process.env.PHONE_NUMBER || 'Configured phone number'}</b></p>
-      <p>Status: ${BOT_STATUS}</p>
-      <div style="background:#25D366; padding:20px; border-radius:15px; font-size:32px; letter-spacing:4px; font-weight:bold; margin:20px;">
-        ${LATEST_CODE}
-      </div>
-      <p>1. Open WhatsApp on the configured phone</p>
-      <p>2. Settings &gt; Linked Devices &gt; Link a Device</p>
-      <p>3. Tap "Link with phone number instead"</p>
-      <p>4. Enter the latest code above</p>
-      <button onclick="location.reload()" style="padding:15px 30px; font-size:18px; border-radius:10px; background:#25D366; color:white; border:none;">🔄 Refresh</button>
-      <p style="color:#888; font-size:12px; margin-top:20px;">Keep this page private. The pairing code grants access to your WhatsApp account.</p>
-    </body>
-    </html>
-  `);
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/pair')) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(renderPage());
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/pair') {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 4096) req.destroy();
+    });
+    req.on('end', async () => {
+      try {
+        const number = new URLSearchParams(body).get('number');
+        const code = await requestPairingCode(number);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderPage(`Your pairing code is ${code}. Enter it in WhatsApp.`));
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderPage(error.message || 'Could not generate a pairing code.'));
+      }
+    });
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not found.');
 });
 
-const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🌐 BRIAN BOT pairing page listening on port ${PORT}`));
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth');
-
-  const sock = makeWASocket({
+  sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false
   });
+  const currentSock = sock;
+  currentSock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', async (update) => {
+  currentSock.ev.on('connection.update', async (update) => {
     const { connection, qr, lastDisconnect } = update;
+    if (currentSock !== sock) return;
 
     if (qr) {
       qrcode.generate(qr, { small: true });
-
-      if (!sock.authState.creds.registered) {
-        const phoneNumber = process.env.PHONE_NUMBER || '254758690110';
-        const digits = phoneNumber.replace(/[^0-9]/g, '');
-
-        if (digits) {
-          try {
-            const pairingCode = await sock.requestPairingCode(digits);
-            LATEST_CODE = pairingCode;
-            BOT_STATUS = '✅ Code Ready - Enter it in WhatsApp';
-            console.log('📱 BRIAN BOT Pairing code generated');
-          } catch (error) {
-            BOT_STATUS = 'Pairing code generation failed; retrying shortly';
-            console.log('Could not generate pairing code; retrying in 20 seconds.');
-            setTimeout(() => {
-              if (!sock.authState.creds.registered) {
-                sock.requestPairingCode(digits)
-                  .then((pairingCode) => {
-                    LATEST_CODE = pairingCode;
-                    BOT_STATUS = '✅ Code Ready - Enter it in WhatsApp';
-                    console.log('📱 BRIAN BOT Pairing code generated');
-                  })
-                  .catch(() => {
-                    BOT_STATUS = 'Pairing code generation failed';
-                  });
-              }
-            }, 20000);
-          }
+      if (!currentSock.authState.creds.registered && process.env.PHONE_NUMBER) {
+        try {
+          await requestPairingCode(process.env.PHONE_NUMBER);
+          console.log('📱 BRIAN BOT pairing code generated');
+        } catch (error) {
+          updateStatus('Pairing code unavailable; check the number and try again');
+          console.log('Could not generate pairing code.');
         }
       }
     }
 
     if (connection === 'open') {
-      BOT_STATUS = '✅ CONNECTED! Bot is Online';
-      LATEST_CODE = '✅ CONNECTED';
+      updateStatus('Connected');
+      LATEST_CODE = 'Connected';
       console.log('✅ BRIAN BOT Connected!');
     } else if (connection === 'close') {
+      updateStatus('Disconnected');
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      if (statusCode !== 401) startBot();
+      if (statusCode !== DisconnectReason.loggedOut) {
+        setTimeout(() => startBot().catch(() => updateStatus('Reconnect failed')), 3000);
+      } else {
+        sock = null;
+      }
     }
   });
 
-  sock.ev.on('messages.upsert', async ({ messages }) => {
+  currentSock.ev.on('messages.upsert', async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue;
       const from = msg.key.remoteJid;
       if (!from) continue;
-      await sock.readMessages([msg.key]);
+      await currentSock.readMessages([msg.key]);
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
       if (text.toLowerCase() === 'hi') {
-        await sock.sendMessage(from, { text: 'Hello 👋 I am BRIAN BOT' });
+        await currentSock.sendMessage(from, { text: 'Hello 👋 I am BRIAN BOT' });
       } else if (text.toLowerCase() === 'price') {
-        await sock.sendMessage(from, { text: 'Price is 500' });
+        await currentSock.sendMessage(from, { text: 'Price is 500' });
       } else if (text.toLowerCase() === 'contribution') {
-        await sock.sendMessage(from, { text: 'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230' });
+        await currentSock.sendMessage(from, { text: 'Send to 0720864928 - Abel Bungei\nTarget: 800,000\nTotal: 424,230' });
       } else if (text.toLowerCase() === 'sticker') {
         const stickerUrl = process.env.STICKER_URL;
         if (stickerUrl) {
-          await sock.sendMessage(from, { sticker: { url: stickerUrl } });
+          await currentSock.sendMessage(from, { sticker: { url: stickerUrl } });
         } else {
-          await sock.sendMessage(from, { text: 'Sticker is not configured yet.' });
+          await currentSock.sendMessage(from, { text: 'Sticker is not configured yet.' });
         }
       } else if (text.toLowerCase() === 'football') {
-        await sock.sendMessage(from, { text: '⚽ Choose Left / Center / Right' });
+        await currentSock.sendMessage(from, { text: '⚽ Choose Left / Center / Right' });
       } else if (text.includes('https://')) {
-        await sock.sendMessage(from, { text: 'Links not allowed! ❌' });
+        await currentSock.sendMessage(from, { text: 'Links not allowed! ❌' });
       }
     }
   });
 }
 
-startBot();
+startBot().catch((error) => {
+  updateStatus('Startup failed');
+  console.error('Could not start BRIAN BOT:', error.message);
+});

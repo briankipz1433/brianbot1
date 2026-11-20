@@ -65,7 +65,7 @@ function renderPage(message = '') {
   <h2>Pair WhatsApp</h2>
   <form method="POST" action="/pair">
     <label for="number">Phone number with country code</label><br>
-    <input id="number" name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" placeholder="2547XXXXXXXX" value="${escapeHtml(phoneNumber)}" style="padding:10px;margin:10px 0;">
+    <input id="number" name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" placeholder="2547XXXXXXXX" value="${escapeHtml(phoneNumber)}" style="padding:10px;margin:8px 8px 8px 0;">
     <button type="submit" style="padding:10px 16px;">Get pairing code</button>
   </form>
   <p>In WhatsApp, open Linked Devices, choose Link with phone number instead, then enter the code.</p>
@@ -85,23 +85,6 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/status' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ connected: Boolean(sock?.user), status: BOT_STATUS, lastUpdate: LAST_UPDATE, uptime: process.uptime(), service: 'live' }));
-    return;
-  }
-
-  const password = process.env.PAIRING_PAGE_PASSWORD;
-  const username = process.env.PAIRING_PAGE_USER || 'pairing';
-  if (!password) {
-    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Pairing page is locked. Configure PAIRING_PAGE_PASSWORD to enable it.');
-    return;
-  }
-  const expectedAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-  if (req.headers.authorization !== expectedAuth) {
-    res.writeHead(401, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'WWW-Authenticate': 'Basic realm="BRIAN BOT Pairing", charset="UTF-8"'
-    });
-    res.end('Authentication required.');
     return;
   }
 

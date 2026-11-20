@@ -20,22 +20,22 @@ async function startBot() {
       qrcode.generate(qr, { small: true });
 
       if (!sock.authState.creds.registered) {
-        const phoneNumber = process.env.PHONE_NUMBER || '254712345678';
+        const phoneNumber = process.env.PHONE_NUMBER || '254758690110';
         const digits = phoneNumber.replace(/[^0-9]/g, '');
 
         if (digits) {
           try {
             const pairingCode = await sock.requestPairingCode(digits);
-            console.log(`📱 Pairing code: ${pairingCode}`);
+            console.log(`📱 BRIAN BOT Pairing code: ${pairingCode}`);
           } catch (error) {
-            console.error('Could not generate pairing code:', error.message);
+            console.error('BRIAN BOT Could not generate pairing code:', error.message);
           }
         }
       }
     }
 
     if (connection === 'open') {
-      console.log('✅ Bot Connected!');
+      console.log('✅ BRIAN BOT Connected!');
     } else if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       if (statusCode !== 401) startBot();
@@ -56,7 +56,7 @@ async function startBot() {
         || '';
 
       if (text.toLowerCase() === 'hi') {
-        await sock.sendMessage(from, { text: 'Hello 👋' });
+        await sock.sendMessage(from, { text: 'Hello 👋 I am BRIAN BOT' });
       } else if (text.toLowerCase() === 'price') {
         await sock.sendMessage(from, { text: 'Price is 500' });
       } else if (text.toLowerCase() === 'contribution') {

@@ -3,6 +3,7 @@ const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const http = require('http');
 const { URL } = require('url');
+const { handleCommand } = require('./handler.js');
 
 let sock = null;
 let LATEST_CODE = 'No pairing code yet';
@@ -169,6 +170,7 @@ async function startBot() {
       const from = msg.key.remoteJid;
       if (!from) continue;
       await currentSock.readMessages([msg.key]);
+      await handleCommand(currentSock, msg);
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
       if (text.toLowerCase() === 'hi') {

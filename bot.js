@@ -5,6 +5,8 @@ const http = require('http');
 const { URL } = require('url');
 const { handleCommand } = require('./handler.js');
 
+const OWNER_NUMBER = process.env.OWNER_NUMBER || '';
+
 let sock = null;
 let LATEST_CODE = 'No pairing code yet';
 let BOT_STATUS = 'Starting...';
@@ -123,11 +125,15 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => console.log(`🌐 BRIAN BOT pairing page listening on port ${PORT}`));
 
 async function startBot() {
+  // Keep the existing auth directory so saved WhatsApp credentials continue to work.
   const { state, saveCreds } = await useMultiFileAuthState('auth');
+
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    printQRInTerminal: false
+    printQRInTerminal: false,
+    browser: ['BRIAN BOT', 'Chrome', '1.0.0'],
+    syncFullHistory: false
   });
   const currentSock = sock;
   currentSock.ev.on('creds.update', saveCreds);
@@ -152,8 +158,45 @@ async function startBot() {
     if (connection === 'open') {
       updateStatus('Connected');
       LATEST_CODE = 'Connected';
-      console.log('✅ BRIAN BOT Connected!');
-    } else if (connection === 'close') {
+      console.log('✅ BRIAN BOT Connected as:', currentSock.user?.id);
+
+      const connectedMsg = `🤖 *BRIAN BOT CONNECTED SUCCESSFULLY* ✅
+
+Hello Boss! 👋
+Your bot is now live and ready.
+
+*Bot Name:* BRIAN BOT
+*Status:* 🟢 Online
+*Prefix:* .
+*Total Commands:* 1000
+*Time:* ${new Date().toLocaleString()}
+
+Type *.menu* to see all commands.
+Type *.ping* to test me.
+
+_Powered by BRIAN BOT_`;
+
+      try {
+        const ownerDigits = OWNER_NUMBER.replace(/[^0-9]/g, '');
+        if (ownerDigits.length >= 8 && ownerDigits.length <= 15) {
+          const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+          await currentSock.sendMessage(ownerJid, { text: connectedMsg });
+
+          const selfJid = currentSock.user?.id;
+          const selfNumber = selfJid?.split('@')[0].split(':')[0];
+          if (selfJid && selfNumber !== ownerDigits) {
+            await currentSock.sendMessage(selfJid, { text: connectedMsg });
+          }
+          console.log('✅ Connected message sent to WhatsApp');
+        } else {
+          console.log('Set OWNER_NUMBER to your full number with country code to receive connection notifications.');
+        }
+      } catch (error) {
+        console.log('Could not send connected message:', error.message);
+      }
+    }
+
+    if (connection === 'close') {
       updateStatus('Disconnected');
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       if (statusCode !== DisconnectReason.loggedOut) {

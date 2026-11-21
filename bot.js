@@ -1,232 +1,148 @@
-// ============================================
-// BRIAN BOT - GREEN + GOLD
-// Pairing page + menus + basic commands
-// ============================================
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion
-} = require('@whiskeysockets/baileys');
-const express = require('express');
+// BRIAN BOT v2 - Render Fixed - QR + Pairing Code on Website
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const express = require('express');
+const QRCode = require('qrcode');
+const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const BOT_NAME = 'BRIAN BOT';
-const FOOTER = '*BRIAN BOT BY BRIAN*\nSelect a command and type it.';
+const PORT = process.env.PORT || 10000;
+const PHONE_NUMBER = process.env.PHONE_NUMBER || '2547XXXXXXXX'; // CHANGE to your number, no +
 
-let botNumber = (process.env.PAIR_NUMBER || process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, '');
-let latestCode = 'Enter your number below then click GENERATE';
-let botStatus = 'DISCONNECTED';
-let sockGlobal = null;
+let lastQR = '';
+let pairingCode = '';
+let sock = null;
+let isConnected = false;
 
-app.use(express.urlencoded({ extended: false, limit: '2kb' }));
-app.use(express.json({ limit: '2kb' }));
-
-function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-  })[char]);
-}
-
-function boxMenu(title, emoji, commands) {
-  const list = commands.map(command => `│ ◦ ${command}`).join('\n');
-  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌──[ ${title} ]──\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
-}
-
-const MAIN_MENU = boxMenu('MAIN MENU', '👑', [
-  '.owner - Owner Panel', '.game - Game Menu', '.download - Download Menu',
-  '.group - Group Menu', '.ping - Check Online', '.hi - Say Hello',
-  '.profile - My Profile', '.jid - Get JID', '.active - Active Users',
-  '.setting - Settings', '.menutype - Change Menu'
-]);
-const OWNER_MENU = boxMenu('OWNER PANEL', '✨', [
-  '.setreply', '.autoreply', '.listreply', '.delreply', '.setwelcome',
-  '.listwelcome', '.delwelcome', '.setvoice', '.listvoice', '.delvoice',
-  '.addsudo', '.delsudo', '.listsudo', '.save', '.anime', '.csong', '.movie',
-  '.tv', '.forward', '.savesongs', '.autocsong', '.removesong', '.getdp',
-  '.leave', '.join', '.jid', '.setpp', '.fullpp', '.set', '.gstatus', '.gjid',
-  '.active', '.apply', '.profile', '.menutype', '.setting', '.game',
-  '.schedule', '.schedules', '.unschedule', '.mytime'
-]);
-const GAME_MENU = boxMenu('GAME PANEL', '🎮', [
-  '.football', '.tictactoe', '.quiz', '.rps', '.truth', '.dare', '.guess',
-  '.slot', '.dice', '.chess', '.wordgame', '.mathquiz'
-]);
-const DOWNLOAD_MENU = boxMenu('DOWNLOAD MENU', '📥', [
-  '.play - Song', '.video - Video', '.song - Audio', '.tiktok - TikTok',
-  '.fb - Facebook', '.ig - Instagram', '.yt - YouTube', '.apk - App',
-  '.movie - Movie', '.anime - Anime', '.csong - Christian Song',
-  '.savesongs - Save Songs', '.autocsong - Auto Song'
-]);
-const GROUP_MENU = boxMenu('GROUP MENU', '👥', [
-  '.kick', '.add', '.promote', '.demote', '.tagall', '.hidetag', '.antilink',
-  '.welcome on/off', '.setwelcome', '.listwelcome', '.delwelcome', '.gstatus',
-  '.gjid', '.getdp', '.leave', '.join', '.mute', '.unmute', '.open', '.close'
-]);
-
-function getStatusDisplay() {
-  if (botStatus === 'CONNECTED') {
-    return { text: '✅ CONNECTED', color: '#25D366' };
-  }
-  if (botStatus === 'WAITING') {
-    return { text: '⏳ WAITING', color: '#FFD700' };
-  }
-  return { text: '❌ DISCONNECTED', color: '#ff4d4d' };
-}
-
-function getHTML(error = '') {
-  const statusDisplay = getStatusDisplay();
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>BRIAN BOT</title></head>
-<body style="font-family:Arial;text-align:center;padding:20px;background:#0b141a;color:white">
-<div style="font-size:50px">👑</div><h1>BRIAN BOT</h1>
-<p style="color:#FFD700">👑 KING OF BOTS • GREEN + GOLD 👑</p>
-<div style="background:${statusDisplay.color};padding:12px;border-radius:20px;font-weight:bold;display:inline-block">${escapeHTML(statusDisplay.text)}</div>
-<div style="border:1px solid #FFD700;border-radius:15px;padding:20px;margin-top:20px">
-${error ? `<p role="alert" style="color:#ff6b6b">${escapeHTML(error)}</p>` : ''}
-<form method="post" action="/generate">
-<p><b>ENTER YOUR WHATSAPP NUMBER</b></p>
-<p style="color:#aaa;font-size:13px">Type your number like 2547XXXXXXXX (no + or spaces). You can leave this blank if PAIR_NUMBER is configured on the server.</p>
-<input name="number" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" value="${escapeHTML(botNumber)}" placeholder="e.g. 254758690110" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
-<br><br><button type="submit" style="width:100%;background:linear-gradient(to right,#25D366,#FFD700);color:black;padding:15px;border-radius:10px;font-weight:bold;font-size:18px;border:none">GENERATE PAIRING CODE</button>
-</form>
-<br><p><b>YOUR CODE TO ENTER IN WHATSAPP</b></p>
-<div style="background:#111b21;padding:20px;border-radius:10px;font-size:28px;letter-spacing:3px;font-weight:bold;color:#FFD700">${escapeHTML(latestCode)}</div>
-<p>Bot Number: <b style="color:#25D366">+${escapeHTML(botNumber || 'Not set yet')}</b></p>
-</div>
-<div style="text-align:left;background:#111b21;padding:15px;border-radius:15px;margin-top:20px">
-<p><b>HOW TO LINK</b></p><p>1. Enter your WhatsApp number if it is not already configured, then generate a code.</p>
-<p>2. Open WhatsApp → Linked Devices → Link a Device.</p>
-<p>3. Choose “Link with phone number instead” and enter the code.</p>
-</div><p style="color:#888;font-size:12px">👑 BRIAN BOT BY BRIAN © 2026</p>
-</body></html>`;
-}
-
-async function generateCode(number) {
-  const digits = String(number || botNumber || '').replace(/[^0-9]/g, '');
-  if (digits.length < 8 || digits.length > 15) {
-    throw new Error('Enter a valid WhatsApp number with country code, or configure PAIR_NUMBER on the server');
-  }
-  if (!sockGlobal) throw new Error('Bot is still starting. Please try again');
-  if (sockGlobal.authState?.creds?.registered) throw new Error('Bot is already paired');
-  botNumber = digits;
-  latestCode = await sockGlobal.requestPairingCode(botNumber);
-  botStatus = 'WAITING';
-  console.log(`Pairing code generated for ${botNumber}`);
-}
-
-app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(getHTML()));
-app.get('/generate', (_req, res) => res.redirect(303, '/'));
-app.post('/generate', async (req, res) => {
-  try {
-    await generateCode(req.body.number);
-    return res.set('Cache-Control', 'no-store').redirect(303, '/');
-  } catch (error) {
-    return res.status(400).set('Cache-Control', 'no-store').type('html').send(getHTML(error.message));
-  }
+app.get('/', (req, res) => {
+  res.send(`
+  <html><body style="font-family:sans-serif;text-align:center;padding:20px;background:#111;color:#fff">
+    <h1>👑 BRIAN BOT IS RUNNING</h1>
+    <p>Status: <b style="color:${isConnected ? 'lime' : 'orange'}">${isConnected ? '✅ CONNECTED TO WHATSAPP' : '⏳ WAITING TO LINK'}</b></p>
+    <p>Pairing Code: <b style="font-size:28px;letter-spacing:3px">${pairingCode || 'Generating... refresh in 10s'}</b></p>
+    <p>Phone: ${PHONE_NUMBER}</p>
+    <hr>
+    <a href="/qr" style="background:green;color:white;padding:12px 20px;text-decoration:none;border-radius:8px">📷 VIEW QR CODE</a>
+    <br><br>
+    <p>How to link:</p>
+    <p>1. WhatsApp > Settings > Linked Devices > Link with Phone Number</p>
+    <p>2. Enter Pairing Code above</p>
+    <p>OR scan QR at /qr</p>
+    <p><small>Project Atomic ࿐</small></p>
+  </body></html>
+  `);
 });
-app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({
-  status: botStatus,
-  pairingNumber: botNumber,
-  pairingCode: botStatus === 'WAITING' ? latestCode : ''
-}));
 
-app.listen(PORT, () => console.log(`🌐 BRIAN BOT website live on port ${PORT}`));
-
-async function startBot() {
+app.get('/qr', async (req, res) => {
+  if (isConnected) return res.send('<h1>✅ Already Connected!</h1><a href="/">Back</a>');
+  if (!lastQR) return res.send('<h1>⏳ No QR yet. Wait 10 sec and refresh.</h1><a href="/qr">Refresh</a><br><a href="/">Home</a>');
   try {
-    const { state, saveCreds } = await useMultiFileAuthState('session');
+    const qrImage = await QRCode.toDataURL(lastQR);
+    res.send(`<html><body style="text-align:center"><h1>Scan This QR</h1><img src="${qrImage}" style="width:300px"/><br><p>WhatsApp > Linked Devices > Link Device > Scan</p><a href="/qr">Refresh</a></body></html>`);
+  } catch (e) { res.send('QR Error: ' + e.message); }
+});
 
-    if (state.creds.registered) {
-      botStatus = 'DISCONNECTED';
-    } else {
-      botStatus = 'DISCONNECTED';
+app.get('/pair', (req, res) => res.json({ pairingCode, phone: PHONE_NUMBER, connected: isConnected }));
+
+app.listen(PORT, () => console.log(`🌐 Web on port ${PORT}`));
+
+async function startBrian() {
+  const { state, saveCreds } = await useMultiFileAuthState('brian_auth');
+  const { version } = await fetchLatestBaileysVersion();
+  console.log('Using Baileys v', version);
+
+  sock = makeWASocket({
+    version,
+    logger: pino({ level: 'silent' }),
+    auth: state,
+    printQRInTerminal: false,
+    browser: ['Brian Bot', 'Chrome', '1.0'],
+    syncFullHistory: false
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) {
+      lastQR = qr;
+      console.log('✅ New QR generated - check /qr');
+    }
+    if (connection === 'close') {
+      isConnected = false;
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('Disconnected. Reconnect?', shouldReconnect);
+      if (shouldReconnect) {
+        setTimeout(startBrian, 3000);
+      } else {
+        console.log('LOGGED OUT - Delete brian_auth and relink');
+        try { fs.rmSync('brian_auth', { recursive: true, force: true }); } catch {}
+        setTimeout(startBrian, 3000);
+      }
+    } else if (connection === 'open') {
+      isConnected = true;
+      lastQR = '';
+      pairingCode = '';
+      console.log('✅ BRIAN BOT IS ONLINE!');
+    }
+  });
+
+  // Pairing Code - Only if not registered
+  if (!sock.authState.creds.registered) {
+    setTimeout(async () => {
+      try {
+        if (!sock.authState.creds.registered) {
+          pairingCode = await sock.requestPairingCode(PHONE_NUMBER);
+          console.log('🔑 PAIRING CODE:', pairingCode);
+        }
+      } catch (e) { console.log('Pairing error:', e.message); }
+    }, 5000);
+  }
+
+  // MESSAGES
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0];
+    if (!msg.message || msg.key.fromMe) return;
+    const from = msg.key.remoteJid;
+    const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+    const lower = text.toLowerCase();
+    console.log('MSG:', from, text);
+
+    let reply = '';
+
+    if (lower === 'hi' || lower === 'hello' || lower === 'menu' || lower === '.menu' || lower === '.owner') {
+      reply = `┏─────────────────────┓\n   ✨ *OWNER PANEL* ✨\n┗─────────────────────┛\n\n┌─────────────────────┐\n│ ◦ .menu\n│ ◦ .vpn\n│ ◦ .book\n│ ◦ .free\n│ ◦ .price\n│ ◦ .english\n│ ◦ .kiswahili\n│ ◦ .kalenjin\n│ ◦ .verse\n│ ◦ .sabbath\n│ ◦ .human\n└─────────────────────┘\n\n*𝛲𝑅𝛩𝐽𝛯𝐶亇 𝜟亇𝛩𝛭𝐼𝐶 ࿐*\nSelect a command and type it.`;
+    }
+    else if (lower === '.vpn' || lower === 'vpn') {
+      reply = `┏─────────────────────┓\n   🔥 *VPN MENU* 🔥\n┗─────────────────────┛\n\n┌─────────────────────┐\n│ ◦ .free - Free Test\n│ ◦ .price - Price List\n│ ◦ .pay - M-Pesa\n└─────────────────────┘\n\n*VPNTECH ࿐*`;
+    }
+    else if (lower === '.book' || lower === 'book' || lower === 'kitabu') {
+      reply = `┏─────────────────────┓\n   📖 *BOOK MENU* 📖\n┗─────────────────────┛\n\n┌─────────────────────┐\n│ ◦ .english\n│ ◦ .kiswahili\n│ ◦ .kalenjin\n│ ◦ .verse\n│ ◦ .sabbath\n└─────────────────────┘\n\n*ADVENTIST ࿐*`;
+    }
+    else if (lower === '.free' || lower === 'free') {
+      const user = 'brian' + Math.floor(Math.random() * 99999);
+      reply = `🔥 FREE VPN TEST - VpnTech\n\nHost: vpntech.duckdns.org\nUser: ${user}\nPass: 1234\nPort: 443\nValid: 1 Hour\n\nType .price to buy full account.`;
+    }
+    else if (lower === '.price' || lower === 'price' || lower === 'bei') {
+      reply = `💰 VPNTECH PRICE\n\n1 Day: Ksh 20\n3 Days: Ksh 50\n7 Days: Ksh 100\n30 Days: Ksh 250\n\nPay via M-Pesa, send screenshot.\nType .free to test first!`;
+    }
+    else if (lower === '.english') {
+      reply = `📖 English Books:\n1. Steps to Christ\n2. Great Controversy\nLink: https://egwwritings.org`;
+    }
+    else if (lower === '.kiswahili') {
+      reply = `📖 Kiswahili:\n1. Hatua za Kwenda kwa Kristo\n2. Vita Kuu\nLink: https://egwwritings.org`;
+    }
+    else if (lower === '.kalenjin') {
+      reply = `Chamgei! 📖\nOroret ne bo Kristo - Somani tugul.\nKalenjin booklet coming soon.`;
+    }
+    else if (lower === '.human' || lower === 'human') {
+      reply = `Sawa, Brian mwenyewe anakujia... 👑 Please wait 1 min.`;
     }
 
-    const { version } = await fetchLatestBaileysVersion();
-    const sock = makeWASocket({
-      version,
-      auth: state,
-      logger: pino({ level: 'silent' }),
-      printQRInTerminal: false,
-      browser: ['BRIAN BOT', 'Chrome', '1.0.0'],
-      syncFullHistory: false,
-      markOnlineOnConnect: true
-    });
-    sockGlobal = sock;
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
-      if (connection === 'open') {
-        botStatus = 'CONNECTED';
-        latestCode = '✅ CONNECTED';
-        console.log('✅ BRIAN BOT ONLINE');
-        try { await sock.sendPresenceUpdate('available'); } catch {}
-      } else if (connection === 'close') {
-        const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
-        sockGlobal = null;
-
-        if (loggedOut) {
-          botStatus = 'DISCONNECTED';
-          latestCode = 'Enter your number below then click GENERATE';
-          console.log('❌ Logged out. Remove the session directory and pair again.');
-        } else {
-          botStatus = 'DISCONNECTED';
-          setTimeout(startBot, 3000);
-        }
-      }
-    });
-
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-      for (const msg of messages || []) {
-        try {
-          if (!msg?.message || msg.key?.fromMe) continue;
-          const from = msg.key.remoteJid;
-          if (!from) continue;
-          const isGroup = from.endsWith('@g.us');
-          const sender = msg.key.participant || from;
-          const text = msg.message.conversation
-            || msg.message.extendedTextMessage?.text
-            || msg.message.imageMessage?.caption
-            || '';
-          if (!text.trim()) continue;
-          let clean = text.trim();
-          if (['.', '!', '/'].includes(clean[0])) clean = clean.slice(1).trim();
-          const parts = clean.split(/\s+/);
-          const cmd = (parts.shift() || '').toLowerCase();
-          const reply = message => sock.sendMessage(from, { text: message }, { quoted: msg });
-
-          if (['hi', 'hello', 'hey'].includes(cmd)) await reply(`Hello 👋 I am *${BOT_NAME}*\nType *.menu* to see commands\n\n${FOOTER}`);
-          else if (['ping', 'alive', 'online'].includes(cmd)) await reply(`✅ *${BOT_NAME} is ONLINE* ⚡\nSpeed: Fast\n\n${FOOTER}`);
-          else if (['menu', 'main', 'help'].includes(cmd)) await reply(MAIN_MENU);
-          else if (['owner', 'ownerpanel'].includes(cmd)) await reply(OWNER_MENU);
-          else if (['game', 'games'].includes(cmd)) await reply(GAME_MENU);
-          else if (['download', 'dl'].includes(cmd)) await reply(DOWNLOAD_MENU);
-          else if (['group', 'grp'].includes(cmd)) await reply(GROUP_MENU);
-          else if (cmd === 'profile') await reply(`Your Profile: ${sender}\n\n${FOOTER}`);
-          else if (cmd === 'jid') await reply(`Your JID: ${from}\nYour Number: ${sender.split('@')[0]}\n\n${FOOTER}`);
-          else if (cmd === 'gjid') await reply(isGroup ? `Group JID: ${from}\n\n${FOOTER}` : 'Use this in a group!');
-          else if (cmd === 'active') await reply(`✅ Bot is Active Now\nUptime: Running on your hosting service\n\n${FOOTER}`);
-          else if (['mytime', 'time'].includes(cmd)) await reply(`🕒 Your Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\nTimezone: Africa/Nairobi\n\n${FOOTER}`);
-          else if (['setting', 'settings'].includes(cmd)) await reply(`⚙️ *SETTINGS*\n\nPrefix: . ! / or no prefix\nBot Name: ${BOT_NAME}\nMode: Public\n\n${FOOTER}`);
-          else if (cmd === 'menutype') await reply(`Menu Type: BOX MENU ✅\n\n${FOOTER}`);
-          else if (['football', 'soccer'].includes(cmd)) await reply(`⚽ *FOOTBALL GAME*\n\nYou kicked... ${['Left ⚽ GOAL!', 'Center ⚽ GOAL!', 'Right ⚽ MISS!'][Math.floor(Math.random() * 3)]}\n\n${FOOTER}`);
-          else if (['gstatus', 'groupinfo'].includes(cmd)) {
-            if (!isGroup) await reply('Use this in a group!');
-          }
-        } catch (error) {
-          console.log('Message handler error:', error.message);
-        }
-      }
-    });
-  } catch (error) {
-    botStatus = 'DISCONNECTED';
-    console.error('Bot startup error:', error.message);
-    setTimeout(startBot, 5000);
-  }
+    if (reply) {
+      await sock.sendMessage(from, { text: reply });
+    }
+  });
 }
 
-startBot();
+startBrian();

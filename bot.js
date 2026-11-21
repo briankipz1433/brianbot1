@@ -18,7 +18,7 @@ const FOOTER = '*BRIAN BOT BY BRIAN*\nSelect a command and type it.';
 
 let botNumber = (process.env.PAIR_NUMBER || process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, '');
 let latestCode = 'Enter your number below then click GENERATE';
-let botStatus = 'CONNECTED';
+let botStatus = 'DISCONNECTED';
 let sockGlobal = null;
 
 app.use(express.urlencoded({ extended: false, limit: '2kb' }));
@@ -32,7 +32,7 @@ function escapeHTML(value) {
 
 function boxMenu(title, emoji, commands) {
   const list = commands.map(command => `│ ◦ ${command}`).join('\n');
-  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌──[${title}]──\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
+  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌──[ ${title} ]──\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
 }
 
 const MAIN_MENU = boxMenu('MAIN MENU', '👑', [
@@ -66,17 +66,25 @@ const GROUP_MENU = boxMenu('GROUP MENU', '👥', [
   '.gjid', '.getdp', '.leave', '.join', '.mute', '.unmute', '.open', '.close'
 ]);
 
+function getStatusDisplay() {
+  if (botStatus === 'CONNECTED') {
+    return { text: '✅ CONNECTED', color: '#25D366' };
+  }
+  if (botStatus === 'WAITING') {
+    return { text: '⏳ WAITING', color: '#FFD700' };
+  }
+  return { text: '❌ DISCONNECTED', color: '#ff4d4d' };
+}
+
 function getHTML(error = '') {
-  const online = botStatus === 'CONNECTED';
-  const statusColor = online ? '#25D366' : '#25D366';
-  const statusText = '✅ CONNECTED';
+  const statusDisplay = getStatusDisplay();
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>BRIAN BOT</title></head>
 <body style="font-family:Arial;text-align:center;padding:20px;background:#0b141a;color:white">
 <div style="font-size:50px">👑</div><h1>BRIAN BOT</h1>
 <p style="color:#FFD700">👑 KING OF BOTS • GREEN + GOLD 👑</p>
-<div style="background:${statusColor};padding:12px;border-radius:20px;font-weight:bold;display:inline-block">${escapeHTML(statusText)}</div>
+<div style="background:${statusDisplay.color};padding:12px;border-radius:20px;font-weight:bold;display:inline-block">${escapeHTML(statusDisplay.text)}</div>
 <div style="border:1px solid #FFD700;border-radius:15px;padding:20px;margin-top:20px">
 ${error ? `<p role="alert" style="color:#ff6b6b">${escapeHTML(error)}</p>` : ''}
 <form method="post" action="/generate">
@@ -106,6 +114,7 @@ async function generateCode(number) {
   if (sockGlobal.authState?.creds?.registered) throw new Error('Bot is already paired');
   botNumber = digits;
   latestCode = await sockGlobal.requestPairingCode(botNumber);
+  botStatus = 'WAITING';
   console.log(`Pairing code generated for ${botNumber}`);
 }
 
@@ -119,13 +128,24 @@ app.post('/generate', async (req, res) => {
     return res.status(400).set('Cache-Control', 'no-store').type('html').send(getHTML(error.message));
   }
 });
-app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'CONNECTED' }));
+app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({
+  status: botStatus,
+  pairingNumber: botNumber,
+  pairingCode: botStatus === 'WAITING' ? latestCode : ''
+}));
 
 app.listen(PORT, () => console.log(`🌐 BRIAN BOT website live on port ${PORT}`));
 
 async function startBot() {
   try {
     const { state, saveCreds } = await useMultiFileAuthState('session');
+
+    if (state.creds.registered) {
+      botStatus = 'DISCONNECTED';
+    } else {
+      botStatus = 'DISCONNECTED';
+    }
+
     const { version } = await fetchLatestBaileysVersion();
     const sock = makeWASocket({
       version,
@@ -146,12 +166,17 @@ async function startBot() {
         console.log('✅ BRIAN BOT ONLINE');
         try { await sock.sendPresenceUpdate('available'); } catch {}
       } else if (connection === 'close') {
-        botStatus = 'CONNECTED';
-        latestCode = '✅ CONNECTED';
         const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
         sockGlobal = null;
-        if (loggedOut) console.log('❌ Logged out. Remove the session directory and pair again.');
-        else setTimeout(startBot, 3000);
+
+        if (loggedOut) {
+          botStatus = 'DISCONNECTED';
+          latestCode = 'Enter your number below then click GENERATE';
+          console.log('❌ Logged out. Remove the session directory and pair again.');
+        } else {
+          botStatus = 'DISCONNECTED';
+          setTimeout(startBot, 3000);
+        }
       }
     });
 
@@ -172,7 +197,6 @@ async function startBot() {
           if (['.', '!', '/'].includes(clean[0])) clean = clean.slice(1).trim();
           const parts = clean.split(/\s+/);
           const cmd = (parts.shift() || '').toLowerCase();
-          const args = parts.join(' ');
           const reply = message => sock.sendMessage(from, { text: message }, { quoted: msg });
 
           if (['hi', 'hello', 'hey'].includes(cmd)) await reply(`Hello 👋 I am *${BOT_NAME}*\nType *.menu* to see commands\n\n${FOOTER}`);
@@ -199,7 +223,7 @@ async function startBot() {
       }
     });
   } catch (error) {
-    botStatus = 'CONNECTED';
+    botStatus = 'DISCONNECTED';
     console.error('Bot startup error:', error.message);
     setTimeout(startBot, 5000);
   }

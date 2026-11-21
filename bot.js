@@ -1,3 +1,7 @@
+// ============================================
+// BRIAN BOT - GREEN + GOLD
+// Pairing page + menus + basic commands
+// ============================================
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -6,18 +10,20 @@ const {
 } = require('@whiskeysockets/baileys');
 const express = require('express');
 const pino = require('pino');
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PAIRING_PASS = process.env.PAIRING_PASS || '';
+const BOT_NAME = 'BRIAN BOT';
+const FOOTER = '*BRIAN BOT BY BRIAN*\nSelect a command and type it.';
 
-let pairingNumber = (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, '');
-let currentPairCode = '';
-let botStatus = 'Disconnected';
-let sock = null;
+let botNumber = (process.env.PAIR_NUMBER || process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, '');
+let latestCode = 'Enter your number below then click GENERATE';
+let botStatus = 'DISCONNECTED';
+let sockGlobal = null;
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.urlencoded({ extended: false, limit: '2kb' }));
+app.use(express.json({ limit: '2kb' }));
 
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, char => ({
@@ -25,164 +31,212 @@ function escapeHTML(value) {
   })[char]);
 }
 
-async function generatePairingCode(number) {
-  if (!number) throw new Error('Enter your WhatsApp number first');
-  if (!sock) throw new Error('Bot is still starting. Please try again');
-  if (sock.authState?.creds?.registered) throw new Error('Bot is already paired');
-
-  pairingNumber = number.replace(/[^0-9]/g, '');
-  if (pairingNumber.length < 8) throw new Error('Enter a valid WhatsApp number with country code');
-
-  currentPairCode = await sock.requestPairingCode(pairingNumber);
-  botStatus = 'Waiting for pairing';
-  console.log(`\nBRIAN BOT PAIR CODE FOR ${pairingNumber}: ${currentPairCode}\n`);
-  return currentPairCode;
+function boxMenu(title, emoji, commands) {
+  const list = commands.map(command => `│ ◦ ${command}`).join('\n');
+  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌─────────────────────┐\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
 }
 
-function getHTML(errorMsg = '') {
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="referrer" content="no-referrer">
-<title>BRIAN BOT - Pair</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
-body{background:#0a0f0a;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:15px}
-.card{background:linear-gradient(180deg,#1a241a 0%,#0f1510 100%);width:100%;max-width:420px;border-radius:22px;padding:28px 24px;text-align:center;border:2px solid #FFD700;box-shadow:0 10px 40px rgba(255,215,0,.12)}
-.crown{font-size:55px}h1{color:#fff;font-size:26px;letter-spacing:2px;margin-top:6px}h1 span{color:#FFD700}
-.sub{color:#25D366;font-size:12px;font-weight:700;letter-spacing:2px;margin:6px 0 16px}
-.status{display:inline-block;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:800;background:${botStatus.includes('ONLINE') ? '#25D366' : '#ffb703'};color:#000;margin-bottom:18px;border:1px solid #FFD700}
-.box{background:#111a11;padding:18px;border-radius:14px;margin-bottom:16px;border:1px solid #FFD700}
-.box label{color:#FFD700;font-size:11px;letter-spacing:2px;font-weight:700}.code{font-size:42px;letter-spacing:8px;color:#fff;font-weight:900;margin:10px 0}.number{color:#25D366;font-size:15px;font-weight:700;margin-top:8px;word-break:break-all}
-.steps{text-align:left;background:#111a11;padding:16px;border-radius:14px;margin-bottom:16px;border:1px solid #333}.steps h3{color:#FFD700;font-size:14px;margin-bottom:10px}.steps p{color:#ccc;font-size:13px;line-height:1.8}
-.error{background:#ff3b30;color:#fff;border-radius:10px;padding:10px;font-size:13px;margin-bottom:12px}
-input{width:100%;padding:13px;border-radius:10px;border:1px solid #FFD700;background:#000;color:#fff;font-size:15px;text-align:center;outline:none;margin-bottom:10px}button{width:100%;padding:14px;border:none;border-radius:10px;background:linear-gradient(135deg,#25D366,#128C7E);color:#000;font-weight:900;font-size:14px;cursor:pointer}
-.footer{color:#777;font-size:11px;margin-top:16px}
-</style>
-</head>
-<body>
-<div class="card">
-<div class="crown">👑</div>
-<h1>BRIAN <span>BOT</span></h1>
-<p class="sub">KING OF BOTS • GREEN + GOLD</p>
-<div class="status">${escapeHTML(botStatus.toUpperCase())}</div>
-${errorMsg ? `<div class="error">${escapeHTML(errorMsg)}</div>` : ''}
-<form method="POST" action="/pair">
-<input type="tel" name="number" value="${escapeHTML(pairingNumber)}" placeholder="WhatsApp number with country code" aria-label="WhatsApp number" required>
-<button type="submit">GENERATE PAIRING CODE</button>
+const MAIN_MENU = boxMenu('MAIN MENU', '👑', [
+  '.owner - Owner Panel', '.game - Game Menu', '.download - Download Menu',
+  '.group - Group Menu', '.ping - Check Online', '.hi - Say Hello',
+  '.profile - My Profile', '.jid - Get JID', '.active - Active Users',
+  '.setting - Settings', '.menutype - Change Menu'
+]);
+const OWNER_MENU = boxMenu('OWNER PANEL', '✨', [
+  '.setreply', '.autoreply', '.listreply', '.delreply', '.setwelcome',
+  '.listwelcome', '.delwelcome', '.setvoice', '.listvoice', '.delvoice',
+  '.addsudo', '.delsudo', '.listsudo', '.save', '.anime', '.csong', '.movie',
+  '.tv', '.forward', '.savesongs', '.autocsong', '.removesong', '.getdp',
+  '.leave', '.join', '.jid', '.setpp', '.fullpp', '.set', '.gstatus', '.gjid',
+  '.active', '.apply', '.profile', '.menutype', '.setting', '.game',
+  '.schedule', '.schedules', '.unschedule', '.mytime'
+]);
+const GAME_MENU = boxMenu('GAME PANEL', '🎮', [
+  '.football', '.tictactoe', '.quiz', '.rps', '.truth', '.dare', '.guess',
+  '.slot', '.dice', '.chess', '.wordgame', '.mathquiz'
+]);
+const DOWNLOAD_MENU = boxMenu('DOWNLOAD MENU', '📥', [
+  '.play - Song', '.video - Video', '.song - Audio', '.tiktok - TikTok',
+  '.fb - Facebook', '.ig - Instagram', '.yt - YouTube', '.apk - App',
+  '.movie - Movie', '.anime - Anime', '.csong - Christian Song',
+  '.savesongs - Save Songs', '.autocsong - Auto Song'
+]);
+const GROUP_MENU = boxMenu('GROUP MENU', '👥', [
+  '.kick', '.add', '.promote', '.demote', '.tagall', '.hidetag', '.antilink',
+  '.welcome on/off', '.setwelcome', '.listwelcome', '.delwelcome', '.gstatus',
+  '.gjid', '.getdp', '.leave', '.join', '.mute', '.unmute', '.open', '.close'
+]);
+
+function getHTML(error = '') {
+  const online = botStatus === 'CONNECTED';
+  const statusColor = online ? '#25D366' : '#FF3B30';
+  const statusText = online ? '✅ ONLINE - CONNECTED' : `🔴 ${botStatus}`;
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>BRIAN BOT</title></head>
+<body style="font-family:Arial;text-align:center;padding:20px;background:#0b141a;color:white">
+<div style="font-size:50px">👑</div><h1>BRIAN BOT</h1>
+<p style="color:#FFD700">👑 KING OF BOTS • GREEN + GOLD 👑</p>
+<div style="background:${statusColor};padding:12px;border-radius:20px;font-weight:bold;display:inline-block">${escapeHTML(statusText)}</div>
+<div style="border:1px solid #FFD700;border-radius:15px;padding:20px;margin-top:20px">
+${error ? `<p role="alert" style="color:#ff6b6b">${escapeHTML(error)}</p>` : ''}
+<form method="post" action="/generate">
+<p><b>1. ENTER YOUR WHATSAPP NUMBER</b></p>
+<p style="color:#aaa;font-size:13px">Type your number like 2547XXXXXXXX (no + or spaces)</p>
+<input name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" value="${escapeHTML(botNumber)}" placeholder="e.g. 254758690110" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
+<p><b>2. PAIRING PAGE PASSWORD</b></p>
+<input name="password" type="password" autocomplete="current-password" required placeholder="Enter PAIRING_PASS" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
+<br><br><button type="submit" style="width:100%;background:linear-gradient(to right,#25D366,#FFD700);color:black;padding:15px;border-radius:10px;font-weight:bold;font-size:18px;border:none">GENERATE CODE 👑</button>
 </form>
-<div class="box" style="margin-top:16px">
-<label>YOUR BOT PAIRING NUMBER</label>
-<div class="number">${pairingNumber ? `+${escapeHTML(pairingNumber)}` : 'Enter number above'}</div>
+<br><p><b>3. YOUR CODE TO ENTER IN WHATSAPP</b></p>
+<div style="background:#111b21;padding:20px;border-radius:10px;font-size:28px;letter-spacing:3px;font-weight:bold;color:#FFD700">${escapeHTML(latestCode)}</div>
+<p>Bot Number: <b style="color:#25D366">+${escapeHTML(botNumber || 'Not set yet')}</b></p>
 </div>
-<div class="box">
-<label>PAIRED NUMBER</label>
-<div class="code">${escapeHTML(currentPairCode || 'Waiting')}</div>
-</div>
-<div class="steps">
-<h3>How To Link:</h3>
-<p><b>1.</b> Enter your WhatsApp number with country code<br><b>2.</b> Select “Generate Pairing Code”<br><b>3.</b> Open WhatsApp<br><b>4.</b> Settings → Linked Devices<br><b>5.</b> Link a Device<br><b>6.</b> Select “Link with phone number instead”<br><b>7.</b> Enter the pairing code</p>
-</div>
-<p class="footer">BRIAN BOT © 2026 • Green + Gold Edition</p>
-</div>
-</body>
-</html>`;
+<div style="text-align:left;background:#111b21;padding:15px;border-radius:15px;margin-top:20px">
+<p><b>HOW TO LINK</b></p><p>1. Enter your number and pairing page password, then generate a code.</p>
+<p>2. Open WhatsApp → Linked Devices → Link a Device.</p>
+<p>3. Choose “Link with phone number instead” and enter the code.</p>
+</div><p style="color:#888;font-size:12px">👑 BRIAN BOT BY BRIAN © 2026</p>
+</body></html>`;
 }
 
-app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
-app.get('/pair', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
-app.post('/pair', async (req, res) => {
+function safeEqual(a, b) {
+  const crypto = require('crypto');
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+async function generateCode(number) {
+  const digits = String(number || '').replace(/[^0-9]/g, '');
+  if (digits.length < 8 || digits.length > 15) throw new Error('Enter a valid WhatsApp number with country code');
+  if (!sockGlobal) throw new Error('Bot is still starting. Please try again');
+  if (sockGlobal.authState?.creds?.registered) throw new Error('Bot is already paired');
+  botNumber = digits;
+  latestCode = await sockGlobal.requestPairingCode(botNumber);
+  console.log(`Pairing code generated for ${botNumber}`);
+}
+
+app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(getHTML()));
+app.get('/generate', (_req, res) => res.redirect(303, '/'));
+app.post('/generate', async (req, res) => {
+  if (!PAIRING_PASS) {
+    return res.status(503).type('html').send(getHTML('Pairing is disabled: configure PAIRING_PASS in the hosting environment.'));
+  }
+  if (!safeEqual(req.body.password || '', PAIRING_PASS)) {
+    return res.status(403).type('html').send(getHTML('Incorrect pairing page password.'));
+  }
   try {
-    await generatePairingCode(req.body.number || '');
-    res.set('Cache-Control', 'no-store').redirect('/pair');
+    await generateCode(req.body.number);
+    return res.set('Cache-Control', 'no-store').redirect(303, '/');
   } catch (error) {
-    res.set('Cache-Control', 'no-store').send(getHTML(error.message));
+    return res.status(400).set('Cache-Control', 'no-store').type('html').send(getHTML(error.message));
   }
 });
-app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({
-  status: botStatus,
-  pairingNumber,
-  pairingCode: currentPairCode
-}));
+// Pairing codes are deliberately not included in this public status response.
+app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: botStatus }));
 
-app.listen(PORT, () => console.log(`Server on ${PORT}`));
+app.listen(PORT, () => console.log(`🌐 BRIAN BOT website live on port ${PORT}`));
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('session');
-  const { version } = await fetchLatestBaileysVersion();
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState('session');
+    const { version } = await fetchLatestBaileysVersion();
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      logger: pino({ level: 'silent' }),
+      printQRInTerminal: false,
+      browser: ['BRIAN BOT', 'Chrome', '1.0.0'],
+      syncFullHistory: false,
+      markOnlineOnConnect: true
+    });
+    sockGlobal = sock;
+    sock.ev.on('creds.update', saveCreds);
 
-  sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
-    auth: state,
-    browser: ['BRIAN BOT', 'Chrome', '1.0.0'],
-    syncFullHistory: false,
-    markOnlineOnConnect: true
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  if (!sock.authState.creds.registered && pairingNumber) {
-    setTimeout(async () => {
-      try {
-        await generatePairingCode(pairingNumber);
-      } catch (error) {
-        console.log('Pair error:', error.message);
-      }
-    }, 3000);
-  }
-
-  sock.ev.on('connection.update', async update => {
-    const { connection, lastDisconnect } = update;
-
-    if (connection === 'close') {
-      const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
-      botStatus = 'Disconnected';
-      currentPairCode = '';
-
-      if (loggedOut) {
-        console.log('Logged out - deleting session and restarting');
-        fs.rmSync('session', { recursive: true, force: true });
-        setTimeout(startBot, 2000);
-      } else {
-        setTimeout(startBot, 3000);
-      }
-    } else if (connection === 'open') {
-      botStatus = 'Connected - ONLINE';
-      currentPairCode = '';
-      console.log('BRIAN BOT CONNECTED - ONLINE');
-
-      try {
-        await sock.sendPresenceUpdate('available');
-      } catch {}
-
-      setInterval(async () => {
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+      if (connection === 'open') {
+        botStatus = 'CONNECTED';
+        latestCode = '✅ CONNECTED';
+        console.log('✅ BRIAN BOT ONLINE');
         try { await sock.sendPresenceUpdate('available'); } catch {}
-      }, 15000);
-    }
-  });
+      } else if (connection === 'close') {
+        botStatus = 'DISCONNECTED';
+        latestCode = 'Enter your number below then click GENERATE';
+        const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
+        sockGlobal = null;
+        if (loggedOut) console.log('❌ Logged out. Remove the session directory and pair again.');
+        else setTimeout(startBot, 3000);
+      }
+    });
 
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages[0];
-    if (!msg?.message || msg.key?.fromMe) return;
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+      for (const msg of messages || []) {
+        try {
+          if (!msg?.message || msg.key?.fromMe) continue;
+          const from = msg.key.remoteJid;
+          if (!from) continue;
+          const isGroup = from.endsWith('@g.us');
+          const sender = msg.key.participant || from;
+          const text = msg.message.conversation
+            || msg.message.extendedTextMessage?.text
+            || msg.message.imageMessage?.caption
+            || '';
+          if (!text.trim()) continue;
+          let clean = text.trim();
+          if (['.', '!', '/'].includes(clean[0])) clean = clean.slice(1).trim();
+          const parts = clean.split(/\s+/);
+          const cmd = (parts.shift() || '').toLowerCase();
+          const args = parts.join(' ');
+          const reply = message => sock.sendMessage(from, { text: message }, { quoted: msg });
 
-    const jid = msg.key.remoteJid;
-    const text = msg.message.conversation
-      || msg.message.extendedTextMessage?.text
-      || '';
-
-    if (text.toLowerCase() === 'pair' || text.toLowerView === 'code') {
-      await sock.sendMessage(jid, {
-        text: `BRIAN BOT\n\nPairing code: ${currentPairCode || 'Use the pairing page'}\n\nOpen: https://brianbot1.onrender.com/pair`
-      });
-    }
-
-    if (text === '.ping') {
-      await sock.sendMessage(jid, { text: 'BRIAN BOT IS ONLINE' });
-    }
-  });
+          if (['hi', 'hello', 'hey'].includes(cmd)) await reply(`Hello 👋 I am *${BOT_NAME}*\nType *.menu* to see commands\n\n${FOOTER}`);
+          else if (['ping', 'alive', 'online'].includes(cmd)) await reply(`✅ *${BOT_NAME} is ONLINE* ⚡\nSpeed: Fast\n\n${FOOTER}`);
+          else if (['menu', 'main', 'help'].includes(cmd)) await reply(MAIN_MENU);
+          else if (['owner', 'ownerpanel'].includes(cmd)) await reply(OWNER_MENU);
+          else if (['game', 'games'].includes(cmd)) await reply(GAME_MENU);
+          else if (['download', 'dl'].includes(cmd)) await reply(DOWNLOAD_MENU);
+          else if (['group', 'grp'].includes(cmd)) await reply(GROUP_MENU);
+          else if (cmd === 'profile') await reply(`┏─────────────────────┓\n   👤 *PROFILE* 👤\n┗─────────────────────┛\n\n┌─────────────────────┐\n│ Name: ${msg.pushName || 'User'}\n│ Number: ${sender.split('@')[0]}\n│ Chat: ${isGroup ? 'Group' : 'Private'}\n└─────────────────────┘\n\n${FOOTER}`);
+          else if (cmd === 'jid') await reply(`Your JID: ${from}\nYour Number: ${sender.split('@')[0]}\n\n${FOOTER}`);
+          else if (cmd === 'gjid') await reply(isGroup ? `Group JID: ${from}\n\n${FOOTER}` : 'Use this in a group!');
+          else if (['gstatus', 'groupinfo'].includes(cmd)) {
+            if (!isGroup) await reply('Use this in a group!');
+            else {
+              const meta = await sock.groupMetadata(from);
+              await reply(`Group: ${meta.subject}\nMembers: ${meta.participants.length}\nDesc: ${meta.desc || 'No desc'}\n\n${FOOTER}`);
+            }
+          } else if (cmd === 'active') await reply(`✅ Bot is Active Now\nUptime: Running on your hosting service\n\n${FOOTER}`);
+          else if (['mytime', 'time'].includes(cmd)) await reply(`🕒 Your Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\nTimezone: Africa/Nairobi\n\n${FOOTER}`);
+          else if (['setting', 'settings'].includes(cmd)) await reply(`⚙️ *SETTINGS*\n\nPrefix: . ! / or no prefix\nBot Name: ${BOT_NAME}\nMode: Public\n\n${FOOTER}`);
+          else if (cmd === 'menutype') await reply(`Menu Type: BOX MENU ✅\nStyle: ┏ ┓ ┌ ┐ │ ◦\n\n${FOOTER}`);
+          else if (['football', 'soccer'].includes(cmd)) {
+            const choices = ['Left ⚽ GOAL!', 'Center ⚽ GOAL!', 'Right ⚽ MISS!'];
+            await reply(`⚽ *FOOTBALL GAME*\n\nYou kicked... ${choices[Math.floor(Math.random() * choices.length)]}\nType *.football* to play again\n\n${FOOTER}`);
+          } else if (cmd === 'dice') await reply(`🎲 You rolled: *${Math.floor(Math.random() * 6) + 1}*\n\n${FOOTER}`);
+          else if (cmd === 'slot') {
+            const symbols = ['🍒', '🍋', '⭐', '💎', '7️⃣'];
+            const [a, b, c] = Array.from({ length: 3 }, () => symbols[Math.floor(Math.random() * symbols.length)]);
+            await reply(`🎰 *SLOT*\n\n${a} | ${b} | ${c}\n${a === b && b === c ? '🎉 JACKPOT! YOU WIN!' : 'Try again!'}\n\n${FOOTER}`);
+          } else if (cmd === 'quiz') await reply(`🧠 *QUIZ*\n\nWhat is 2 + 2?\nA) 3  B) 4  C) 5\n\nReply with answer - answer checking coming soon!\n\n${FOOTER}`);
+          else if (['truth', 'dare'].includes(cmd)) await reply(`🎲 *${cmd.toUpperCase()}*\n\n${cmd === 'truth' ? 'What is your biggest secret?' : 'Send a voice note singing!'}\n\n${FOOTER}`);
+          else if (['setreply','autoreply','listreply','delreply','setwelcome','listwelcome','delwelcome','setvoice','listvoice','delvoice','addsudo','delsudo','listsudo','save','anime','csong','movie','tv','forward','savesongs','autocsong','removesong','getdp','leave','join','setpp','fullpp','set','apply','schedule','schedules','unschedule'].includes(cmd)) {
+            await reply(`┏─────────────────────┓\n   ✨ *${cmd.toUpperCase()}* ✨\n┗─────────────────────┛\n\nThis command is listed in the owner panel but is not implemented yet.\n\n${FOOTER}`);
+          } else if (['kick','add','promote','demote','tagall','hidetag','antilink','mute','unmute','open','close'].includes(cmd)) {
+            await reply(isGroup ? `👥 *GROUP: ${cmd}*\n\nThis command is not implemented yet.\n\n${FOOTER}` : 'Use this command in a group!');
+          } else if (['play','video','song','tiktok','fb','ig','yt','apk'].includes(cmd)) {
+            await reply(`📥 *DOWNLOAD: ${cmd}*\n\nYou asked: ${args || 'no link'}\nDownload feature is not implemented yet.\n\n${FOOTER}`);
+          }
+        } catch (error) {
+          console.log('Message handler error:', error.message);
+        }
+      }
+    });
+  } catch (error) {
+    botStatus = 'DISCONNECTED';
+    console.error('Bot startup error:', error.message);
+    setTimeout(startBot, 5000);
+  }
 }
 
 startBot();

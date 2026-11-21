@@ -13,7 +13,6 @@ const pino = require('pino');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const PAIRING_PASS = process.env.PAIRING_PASS || '';
 const BOT_NAME = 'BRIAN BOT';
 const FOOTER = '*BRIAN BOT BY BRIAN*\nSelect a command and type it.';
 
@@ -81,35 +80,28 @@ function getHTML(error = '') {
 <div style="border:1px solid #FFD700;border-radius:15px;padding:20px;margin-top:20px">
 ${error ? `<p role="alert" style="color:#ff6b6b">${escapeHTML(error)}</p>` : ''}
 <form method="post" action="/generate">
-<p><b>1. ENTER YOUR WHATSAPP NUMBER</b></p>
-<p style="color:#aaa;font-size:13px">Type your number like 2547XXXXXXXX (no + or spaces)</p>
-<input name="number" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="20" value="${escapeHTML(botNumber)}" placeholder="e.g. 254758690110" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
-<p><b>2. PAIRING PAGE PASSWORD</b></p>
-<input name="password" type="password" autocomplete="current-password" required placeholder="Enter PAIRING_PASS" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
+<p><b>ENTER YOUR WHATSAPP NUMBER</b></p>
+<p style="color:#aaa;font-size:13px">Type your number like 2547XXXXXXXX (no + or spaces). You can leave this blank if PAIR_NUMBER is configured on the server.</p>
+<input name="number" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" value="${escapeHTML(botNumber)}" placeholder="e.g. 254758690110" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
 <br><br><button type="submit" style="width:100%;background:linear-gradient(to right,#25D366,#FFD700);color:black;padding:15px;border-radius:10px;font-weight:bold;font-size:18px;border:none">GENERATE CODE 👑</button>
 </form>
-<br><p><b>3. YOUR CODE TO ENTER IN WHATSAPP</b></p>
+<br><p><b>YOUR CODE TO ENTER IN WHATSAPP</b></p>
 <div style="background:#111b21;padding:20px;border-radius:10px;font-size:28px;letter-spacing:3px;font-weight:bold;color:#FFD700">${escapeHTML(latestCode)}</div>
 <p>Bot Number: <b style="color:#25D366">+${escapeHTML(botNumber || 'Not set yet')}</b></p>
 </div>
 <div style="text-align:left;background:#111b21;padding:15px;border-radius:15px;margin-top:20px">
-<p><b>HOW TO LINK</b></p><p>1. Enter your number and pairing page password, then generate a code.</p>
+<p><b>HOW TO LINK</b></p><p>1. Enter your WhatsApp number if it is not already configured, then generate a code.</p>
 <p>2. Open WhatsApp → Linked Devices → Link a Device.</p>
 <p>3. Choose “Link with phone number instead” and enter the code.</p>
 </div><p style="color:#888;font-size:12px">👑 BRIAN BOT BY BRIAN © 2026</p>
 </body></html>`;
 }
 
-function safeEqual(a, b) {
-  const crypto = require('crypto');
-  const left = Buffer.from(String(a));
-  const right = Buffer.from(String(b));
-  return left.length === right.length && crypto.timingSafeEqual(left, right);
-}
-
 async function generateCode(number) {
-  const digits = String(number || '').replace(/[^0-9]/g, '');
-  if (digits.length < 8 || digits.length > 15) throw new Error('Enter a valid WhatsApp number with country code');
+  const digits = String(number || botNumber || '').replace(/[^0-9]/g, '');
+  if (digits.length < 8 || digits.length > 15) {
+    throw new Error('Enter a valid WhatsApp number with country code, or configure PAIR_NUMBER on the server');
+  }
   if (!sockGlobal) throw new Error('Bot is still starting. Please try again');
   if (sockGlobal.authState?.creds?.registered) throw new Error('Bot is already paired');
   botNumber = digits;
@@ -120,12 +112,6 @@ async function generateCode(number) {
 app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(getHTML()));
 app.get('/generate', (_req, res) => res.redirect(303, '/'));
 app.post('/generate', async (req, res) => {
-  if (!PAIRING_PASS) {
-    return res.status(503).type('html').send(getHTML('Pairing is disabled: configure PAIRING_PASS in the hosting environment.'));
-  }
-  if (!safeEqual(req.body.password || '', PAIRING_PASS)) {
-    return res.status(403).type('html').send(getHTML('Incorrect pairing page password.'));
-  }
   try {
     await generateCode(req.body.number);
     return res.set('Cache-Control', 'no-store').redirect(303, '/');

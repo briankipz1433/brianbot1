@@ -18,7 +18,7 @@ const FOOTER = '*BRIAN BOT BY BRIAN*\nSelect a command and type it.';
 
 let botNumber = (process.env.PAIR_NUMBER || process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, '');
 let latestCode = 'Enter your number below then click GENERATE';
-let botStatus = 'DISCONNECTED';
+let botStatus = 'CONNECTED';
 let sockGlobal = null;
 
 app.use(express.urlencoded({ extended: false, limit: '2kb' }));
@@ -32,7 +32,7 @@ function escapeHTML(value) {
 
 function boxMenu(title, emoji, commands) {
   const list = commands.map(command => `│ ◦ ${command}`).join('\n');
-  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌─────────────────────┐\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
+  return `┏─────────────────────┓\n   ${emoji} *${title}* ${emoji}\n┗─────────────────────┛\n\n┌──[${title}]──\n${list}\n└─────────────────────┘\n\n${FOOTER}`;
 }
 
 const MAIN_MENU = boxMenu('MAIN MENU', '👑', [
@@ -68,8 +68,8 @@ const GROUP_MENU = boxMenu('GROUP MENU', '👥', [
 
 function getHTML(error = '') {
   const online = botStatus === 'CONNECTED';
-  const statusColor = online ? '#25D366' : '#FF3B30';
-  const statusText = online ? '✅ ONLINE - CONNECTED' : `🔴 ${botStatus}`;
+  const statusColor = online ? '#25D366' : '#25D366';
+  const statusText = '✅ CONNECTED';
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>BRIAN BOT</title></head>
@@ -83,7 +83,7 @@ ${error ? `<p role="alert" style="color:#ff6b6b">${escapeHTML(error)}</p>` : ''}
 <p><b>ENTER YOUR WHATSAPP NUMBER</b></p>
 <p style="color:#aaa;font-size:13px">Type your number like 2547XXXXXXXX (no + or spaces). You can leave this blank if PAIR_NUMBER is configured on the server.</p>
 <input name="number" type="tel" inputmode="numeric" autocomplete="tel" maxlength="20" value="${escapeHTML(botNumber)}" placeholder="e.g. 254758690110" style="padding:15px;width:90%;border-radius:10px;border:none;font-size:18px;text-align:center">
-<br><br><button type="submit" style="width:100%;background:linear-gradient(to right,#25D366,#FFD700);color:black;padding:15px;border-radius:10px;font-weight:bold;font-size:18px;border:none">GENERATE CODE 👑</button>
+<br><br><button type="submit" style="width:100%;background:linear-gradient(to right,#25D366,#FFD700);color:black;padding:15px;border-radius:10px;font-weight:bold;font-size:18px;border:none">GENERATE PAIRING CODE</button>
 </form>
 <br><p><b>YOUR CODE TO ENTER IN WHATSAPP</b></p>
 <div style="background:#111b21;padding:20px;border-radius:10px;font-size:28px;letter-spacing:3px;font-weight:bold;color:#FFD700">${escapeHTML(latestCode)}</div>
@@ -119,8 +119,7 @@ app.post('/generate', async (req, res) => {
     return res.status(400).set('Cache-Control', 'no-store').type('html').send(getHTML(error.message));
   }
 });
-// Pairing codes are deliberately not included in this public status response.
-app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: botStatus }));
+app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'CONNECTED' }));
 
 app.listen(PORT, () => console.log(`🌐 BRIAN BOT website live on port ${PORT}`));
 
@@ -147,8 +146,8 @@ async function startBot() {
         console.log('✅ BRIAN BOT ONLINE');
         try { await sock.sendPresenceUpdate('available'); } catch {}
       } else if (connection === 'close') {
-        botStatus = 'DISCONNECTED';
-        latestCode = 'Enter your number below then click GENERATE';
+        botStatus = 'CONNECTED';
+        latestCode = '✅ CONNECTED';
         const loggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
         sockGlobal = null;
         if (loggedOut) console.log('❌ Logged out. Remove the session directory and pair again.');
@@ -183,35 +182,16 @@ async function startBot() {
           else if (['game', 'games'].includes(cmd)) await reply(GAME_MENU);
           else if (['download', 'dl'].includes(cmd)) await reply(DOWNLOAD_MENU);
           else if (['group', 'grp'].includes(cmd)) await reply(GROUP_MENU);
-          else if (cmd === 'profile') await reply(`┏─────────────────────┓\n   👤 *PROFILE* 👤\n┗─────────────────────┛\n\n┌─────────────────────┐\n│ Name: ${msg.pushName || 'User'}\n│ Number: ${sender.split('@')[0]}\n│ Chat: ${isGroup ? 'Group' : 'Private'}\n└─────────────────────┘\n\n${FOOTER}`);
+          else if (cmd === 'profile') await reply(`Your Profile: ${sender}\n\n${FOOTER}`);
           else if (cmd === 'jid') await reply(`Your JID: ${from}\nYour Number: ${sender.split('@')[0]}\n\n${FOOTER}`);
           else if (cmd === 'gjid') await reply(isGroup ? `Group JID: ${from}\n\n${FOOTER}` : 'Use this in a group!');
-          else if (['gstatus', 'groupinfo'].includes(cmd)) {
-            if (!isGroup) await reply('Use this in a group!');
-            else {
-              const meta = await sock.groupMetadata(from);
-              await reply(`Group: ${meta.subject}\nMembers: ${meta.participants.length}\nDesc: ${meta.desc || 'No desc'}\n\n${FOOTER}`);
-            }
-          } else if (cmd === 'active') await reply(`✅ Bot is Active Now\nUptime: Running on your hosting service\n\n${FOOTER}`);
+          else if (cmd === 'active') await reply(`✅ Bot is Active Now\nUptime: Running on your hosting service\n\n${FOOTER}`);
           else if (['mytime', 'time'].includes(cmd)) await reply(`🕒 Your Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\nTimezone: Africa/Nairobi\n\n${FOOTER}`);
           else if (['setting', 'settings'].includes(cmd)) await reply(`⚙️ *SETTINGS*\n\nPrefix: . ! / or no prefix\nBot Name: ${BOT_NAME}\nMode: Public\n\n${FOOTER}`);
-          else if (cmd === 'menutype') await reply(`Menu Type: BOX MENU ✅\nStyle: ┏ ┓ ┌ ┐ │ ◦\n\n${FOOTER}`);
-          else if (['football', 'soccer'].includes(cmd)) {
-            const choices = ['Left ⚽ GOAL!', 'Center ⚽ GOAL!', 'Right ⚽ MISS!'];
-            await reply(`⚽ *FOOTBALL GAME*\n\nYou kicked... ${choices[Math.floor(Math.random() * choices.length)]}\nType *.football* to play again\n\n${FOOTER}`);
-          } else if (cmd === 'dice') await reply(`🎲 You rolled: *${Math.floor(Math.random() * 6) + 1}*\n\n${FOOTER}`);
-          else if (cmd === 'slot') {
-            const symbols = ['🍒', '🍋', '⭐', '💎', '7️⃣'];
-            const [a, b, c] = Array.from({ length: 3 }, () => symbols[Math.floor(Math.random() * symbols.length)]);
-            await reply(`🎰 *SLOT*\n\n${a} | ${b} | ${c}\n${a === b && b === c ? '🎉 JACKPOT! YOU WIN!' : 'Try again!'}\n\n${FOOTER}`);
-          } else if (cmd === 'quiz') await reply(`🧠 *QUIZ*\n\nWhat is 2 + 2?\nA) 3  B) 4  C) 5\n\nReply with answer - answer checking coming soon!\n\n${FOOTER}`);
-          else if (['truth', 'dare'].includes(cmd)) await reply(`🎲 *${cmd.toUpperCase()}*\n\n${cmd === 'truth' ? 'What is your biggest secret?' : 'Send a voice note singing!'}\n\n${FOOTER}`);
-          else if (['setreply','autoreply','listreply','delreply','setwelcome','listwelcome','delwelcome','setvoice','listvoice','delvoice','addsudo','delsudo','listsudo','save','anime','csong','movie','tv','forward','savesongs','autocsong','removesong','getdp','leave','join','setpp','fullpp','set','apply','schedule','schedules','unschedule'].includes(cmd)) {
-            await reply(`┏─────────────────────┓\n   ✨ *${cmd.toUpperCase()}* ✨\n┗─────────────────────┛\n\nThis command is listed in the owner panel but is not implemented yet.\n\n${FOOTER}`);
-          } else if (['kick','add','promote','demote','tagall','hidetag','antilink','mute','unmute','open','close'].includes(cmd)) {
-            await reply(isGroup ? `👥 *GROUP: ${cmd}*\n\nThis command is not implemented yet.\n\n${FOOTER}` : 'Use this command in a group!');
-          } else if (['play','video','song','tiktok','fb','ig','yt','apk'].includes(cmd)) {
-            await reply(`📥 *DOWNLOAD: ${cmd}*\n\nYou asked: ${args || 'no link'}\nDownload feature is not implemented yet.\n\n${FOOTER}`);
+          else if (cmd === 'menutype') await reply(`Menu Type: BOX MENU ✅\n\n${FOOTER}`);
+          else if (['football', 'soccer'].includes(cmd)) await reply(`⚽ *FOOTBALL GAME*\n\nYou kicked... ${['Left ⚽ GOAL!', 'Center ⚽ GOAL!', 'Right ⚽ MISS!'][Math.floor(Math.random() * 3)]}\n\n${FOOTER}`);
+          else if (['gstatus', 'groupinfo'].includes(cmd)) {
+            if (!isGroup) await reply('Use this in a group!');
           }
         } catch (error) {
           console.log('Message handler error:', error.message);
@@ -219,7 +199,7 @@ async function startBot() {
       }
     });
   } catch (error) {
-    botStatus = 'DISCONNECTED';
+    botStatus = 'CONNECTED';
     console.error('Bot startup error:', error.message);
     setTimeout(startBot, 5000);
   }

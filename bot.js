@@ -25,6 +25,20 @@ function escapeHTML(value) {
   })[char]);
 }
 
+async function generatePairingCode(number) {
+  if (!number) throw new Error('Enter your WhatsApp number first');
+  if (!sock) throw new Error('Bot is still starting. Please try again');
+  if (sock.authState?.creds?.registered) throw new Error('Bot is already paired');
+
+  pairingNumber = number.replace(/[^0-9]/g, '');
+  if (pairingNumber.length < 8) throw new Error('Enter a valid WhatsApp number with country code');
+
+  currentPairCode = await sock.requestPairingCode(pairingNumber);
+  botStatus = 'Waiting for pairing';
+  console.log(`\nBRIAN BOT PAIR CODE FOR ${pairingNumber}: ${currentPairCode}\n`);
+  return currentPairCode;
+}
+
 function getHTML(errorMsg = '') {
   return `<!DOCTYPE html>
 <html>
@@ -35,14 +49,16 @@ function getHTML(errorMsg = '') {
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
 body{background:#0a0f0a;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:15px}
-.card{background:linear-gradient(180deg,#1a241a 0%,#0f1510 100%);width:100%;max-width:420px;border-radius:22px;padding:28px 24px;text-align:center;border:2px solid #FFD700;box-shadow:0 10px 40px rgba(255,215,0,.25)}
+.card{background:linear-gradient(180deg,#1a241a 0%,#0f1510 100%);width:100%;max-width:420px;border-radius:22px;padding:28px 24px;text-align:center;border:2px solid #FFD700;box-shadow:0 10px 40px rgba(255,215,0,.12)}
 .crown{font-size:55px}h1{color:#fff;font-size:26px;letter-spacing:2px;margin-top:6px}h1 span{color:#FFD700}
 .sub{color:#25D366;font-size:12px;font-weight:700;letter-spacing:2px;margin:6px 0 16px}
-.status{display:inline-block;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:800;background:${botStatus.includes('ONLINE') ? '#25D366' : '#ff3b30'};color:#000;margin-bottom:18px;border:1px solid #FFD700}
+.status{display:inline-block;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:800;background:${botStatus.includes('ONLINE') ? '#25D366' : '#ffb703'};color:#000;margin-bottom:18px;border:1px solid #FFD700}
 .box{background:#111a11;padding:18px;border-radius:14px;margin-bottom:16px;border:1px solid #FFD700}
-.box label{color:#FFD700;font-size:11px;letter-spacing:2px;font-weight:700}.code{font-size:42px;letter-spacing:8px;color:#fff;font-weight:900;margin:10px 0}.number{color:#25D366;font-size:15px;font-weight:700}
-.steps{text-align:left;background:#111a11;padding:16px;border-radius:14px;margin-bottom:16px;border:1px solid #333}.steps h3{color:#FFD700;font-size:14px;margin-bottom:10px}.steps p{color:#ccc;font-size:13px;line-height:1.9}
-input{width:100%;padding:13px;border-radius:10px;border:1px solid #FFD700;background:#000;color:#fff;font-size:15px;text-align:center;outline:none;margin-bottom:10px}button{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(90deg,#25D366,#FFD700);color:#000;font-weight:900;font-size:15px;cursor:pointer}.error{background:#ff3b30;color:#fff;padding:10px;border-radius:10px;font-size:13px;margin-bottom:12px}.footer{color:#888;font-size:11px;margin-top:16px}.footer b{color:#FFD700}
+.box label{color:#FFD700;font-size:11px;letter-spacing:2px;font-weight:700}.code{font-size:42px;letter-spacing:8px;color:#fff;font-weight:900;margin:10px 0}.number{color:#25D366;font-size:15px;font-weight:700;margin-top:8px;word-break:break-all}
+.steps{text-align:left;background:#111a11;padding:16px;border-radius:14px;margin-bottom:16px;border:1px solid #333}.steps h3{color:#FFD700;font-size:14px;margin-bottom:10px}.steps p{color:#ccc;font-size:13px;line-height:1.8}
+.error{background:#ff3b30;color:#fff;border-radius:10px;padding:10px;font-size:13px;margin-bottom:12px}
+input{width:100%;padding:13px;border-radius:10px;border:1px solid #FFD700;background:#000;color:#fff;font-size:15px;text-align:center;outline:none;margin-bottom:10px}button{width:100%;padding:14px;border:none;border-radius:10px;background:linear-gradient(135deg,#25D366,#128C7E);color:#000;font-weight:900;font-size:14px;cursor:pointer}
+.footer{color:#777;font-size:11px;margin-top:16px}
 </style>
 </head>
 <body>
@@ -52,17 +68,21 @@ input{width:100%;padding:13px;border-radius:10px;border:1px solid #FFD700;backgr
 <p class="sub">KING OF BOTS • GREEN + GOLD</p>
 <div class="status">${escapeHTML(botStatus.toUpperCase())}</div>
 ${errorMsg ? `<div class="error">${escapeHTML(errorMsg)}</div>` : ''}
-<div class="box">
+<form method="POST" action="/pair">
+<input type="tel" name="number" value="${escapeHTML(pairingNumber)}" placeholder="WhatsApp number with country code" aria-label="WhatsApp number" required>
+<button type="submit">GENERATE PAIRING CODE</button>
+</form>
+<div class="box" style="margin-top:16px">
 <label>YOUR BOT PAIRING NUMBER</label>
-<div class="number">${pairingNumber ? `+${escapeHTML(pairingNumber)}` : 'Not configured'}</div>
+<div class="number">${pairingNumber ? `+${escapeHTML(pairingNumber)}` : 'Enter number above'}</div>
 </div>
 <div class="box">
 <label>PAIRED NUMBER</label>
-<div class="code">${escapeHTML(currentPairCode || 'Generating...')}</div>
+<div class="code">${escapeHTML(currentPairCode || 'Waiting')}</div>
 </div>
 <div class="steps">
 <h3>How To Link:</h3>
-<p><b>1.</b> Open the code above<br><b>2.</b> Open WhatsApp<br><b>3.</b> Settings → Linked Devices<br><b>4.</b> Link a Device<br><b>5.</b> Select “Link with phone number instead”<br><b>6.</b> Enter the pairing code</p>
+<p><b>1.</b> Enter your WhatsApp number with country code<br><b>2.</b> Select “Generate Pairing Code”<br><b>3.</b> Open WhatsApp<br><b>4.</b> Settings → Linked Devices<br><b>5.</b> Link a Device<br><b>6.</b> Select “Link with phone number instead”<br><b>7.</b> Enter the pairing code</p>
 </div>
 <p class="footer">BRIAN BOT © 2026 • Green + Gold Edition</p>
 </div>
@@ -72,6 +92,14 @@ ${errorMsg ? `<div class="error">${escapeHTML(errorMsg)}</div>` : ''}
 
 app.get('/', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
 app.get('/pair', (_req, res) => res.set('Cache-Control', 'no-store').send(getHTML()));
+app.post('/pair', async (req, res) => {
+  try {
+    await generatePairingCode(req.body.number || '');
+    res.set('Cache-Control', 'no-store').redirect('/pair');
+  } catch (error) {
+    res.set('Cache-Control', 'no-store').send(getHTML(error.message));
+  }
+});
 app.get('/status', (_req, res) => res.set('Cache-Control', 'no-store').json({
   status: botStatus,
   pairingNumber,
@@ -99,8 +127,7 @@ async function startBot() {
   if (!sock.authState.creds.registered && pairingNumber) {
     setTimeout(async () => {
       try {
-        currentPairCode = await sock.requestPairingCode(pairingNumber);
-        console.log(`\nBRIAN BOT PAIR CODE FOR ${pairingNumber}: ${currentPairCode}\n`);
+        await generatePairingCode(pairingNumber);
       } catch (error) {
         console.log('Pair error:', error.message);
       }
@@ -146,9 +173,9 @@ async function startBot() {
       || msg.message.extendedTextMessage?.text
       || '';
 
-    if (text.toLowerCase() === 'pair' || text.toLowerCase() === 'code') {
+    if (text.toLowerCase() === 'pair' || text.toLowerView === 'code') {
       await sock.sendMessage(jid, {
-        text: `BRIAN BOT\n\nPairing code: ${currentPairCode || 'Generating...'}\n\nOpen: https://brianbot1.onrender.com/pair`
+        text: `BRIAN BOT\n\nPairing code: ${currentPairCode || 'Use the pairing page'}\n\nOpen: https://brianbot1.onrender.com/pair`
       });
     }
 
